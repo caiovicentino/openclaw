@@ -1,6 +1,8 @@
 packages:
   - .
   - ui
+  - ui-admin
+  - ui-chat
   - packages/*
   - extensions/*
 

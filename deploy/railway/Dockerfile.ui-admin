@@ -1,0 +1,41 @@
+### Stage 1: Build
+FROM node:22-slim AS builder
+
+RUN apt-get update && apt-get install -y git python3 make g++ && rm -rf /var/lib/apt/lists/*
+RUN corepack enable && corepack prepare pnpm@10.23.0 --activate
+
+WORKDIR /app
+
+# Copy workspace config for pnpm install
+COPY pnpm-workspace.yaml package.json ./
+COPY pnpm-lock.yaml* ./
+COPY ui-admin/package.json ./ui-admin/
+COPY ui-chat/package.json ./ui-chat/
+COPY ui/package.json ./ui/
+
+# Install all deps (need devDeps for build)
+RUN pnpm install --no-frozen-lockfile
+
+# Copy ui-admin source
+COPY ui-admin/ ./ui-admin/
+
+# Build (skip tsc type-check, vite handles TS via esbuild)
+RUN cd ui-admin && npx vite build
+
+### Stage 2: Serve with nginx
+FROM nginx:alpine
+
+# Install envsubst (part of gettext)
+RUN apk add --no-cache gettext
+
+# Copy built assets
+COPY --from=builder /app/ui-admin/dist /usr/share/nginx/html
+
+# Copy nginx config template and startup script
+COPY deploy/railway/nginx.conf.template /etc/nginx/templates/default.conf.template
+COPY deploy/railway/start-nginx.sh /start-nginx.sh
+RUN chmod +x /start-nginx.sh
+
+EXPOSE 80
+
+CMD ["/start-nginx.sh"]

@@ -93,6 +93,16 @@ export type SessionEntry = {
   lastThreadId?: string | number;
   skillsSnapshot?: SessionSkillSnapshot;
   systemPromptReport?: SessionSystemPromptReport;
+
+  // ── Enterprise multi-tenant fields (ignored in standalone mode) ──
+  tenantId?: string;
+  userId?: string;
+  userEmail?: string;
+  userDepartment?: string;
+  userRoles?: string[];
+  complianceTags?: string[];
+  dataClassification?: "public" | "internal" | "confidential" | "restricted";
+  enterpriseMetadata?: Record<string, unknown>;
 };
 
 export function mergeSessionEntry(

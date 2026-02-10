@@ -1,6 +1,7 @@
 import type { IncomingMessage } from "node:http";
 import { timingSafeEqual } from "node:crypto";
 import type { GatewayAuthConfig, GatewayTailscaleMode } from "../config/config.js";
+import { isEnterpriseMode } from "../enterprise/mode.js";
 import { readTailscaleWhoisIdentity, type TailscaleWhoisIdentity } from "../infra/tailscale.js";
 import { isTrustedProxyAddress, parseForwardedForClientIp, resolveGatewayClientIp } from "./net.js";
 export type ResolvedGatewayAuthMode = "token" | "password";
@@ -14,9 +15,22 @@ export type ResolvedGatewayAuth = {
 
 export type GatewayAuthResult = {
   ok: boolean;
-  method?: "token" | "password" | "tailscale" | "device-token";
+  method?: "token" | "password" | "tailscale" | "device-token" | "jwt" | "api-key";
   user?: string;
   reason?: string;
+  // Enterprise extensions
+  tenantContext?: {
+    tenantId: string;
+    tenantSlug: string;
+    userId: string;
+    userEmail: string;
+    userName: string;
+    department: string;
+    roles: string[];
+    permissions: string[];
+    requestId: string;
+    ipAddress?: string;
+  };
 };
 
 type ConnectAuth = {
@@ -235,6 +249,63 @@ export function assertGatewayAuthConfigured(auth: ResolvedGatewayAuth): void {
   }
 }
 
+function extractBearerToken(req?: IncomingMessage): string | null {
+  if (!req) return null;
+  const authHeader = headerValue(req.headers?.["authorization"]);
+  if (!authHeader) return null;
+  const match = authHeader.match(/^Bearer\s+(\S+)$/i);
+  return match ? match[1] : null;
+}
+
+async function tryJwtAuth(req: IncomingMessage): Promise<GatewayAuthResult | null> {
+  const token = extractBearerToken(req);
+  if (!token) {
+    return null;
+  }
+
+  try {
+    const { verifyAccessToken } = await import("../enterprise/auth/jwt.js");
+    const { createTenantContext } = await import("../enterprise/context/tenant-context.js");
+
+    const payload = await verifyAccessToken(token);
+    const clientIp = headerValue(req.headers?.["x-forwarded-for"])?.split(",")[0]?.trim();
+
+    const tenantCtx = createTenantContext({
+      tenantId: payload.tenantId,
+      tenantSlug: payload.tenantSlug,
+      userId: payload.sub,
+      userEmail: payload.email,
+      userName: payload.name,
+      department: payload.department,
+      roles: payload.roles,
+      permissions: payload.permissions,
+      ipAddress: clientIp,
+    });
+
+    return {
+      ok: true,
+      method: "jwt",
+      user: payload.email,
+      tenantContext: {
+        tenantId: tenantCtx.tenantId,
+        tenantSlug: tenantCtx.tenantSlug,
+        userId: tenantCtx.userId,
+        userEmail: tenantCtx.userEmail,
+        userName: tenantCtx.userName,
+        department: tenantCtx.department,
+        roles: tenantCtx.roles,
+        permissions: tenantCtx.permissions,
+        requestId: tenantCtx.requestId,
+        ipAddress: tenantCtx.ipAddress,
+      },
+    };
+  } catch {
+    // JWT verification failed - return explicit failure so caller
+    // knows a JWT was present but invalid (don't fall through).
+    return { ok: false, reason: "jwt_invalid" };
+  }
+}
+
 export async function authorizeGatewayConnect(params: {
   auth: ResolvedGatewayAuth;
   connectAuth?: ConnectAuth | null;
@@ -245,6 +316,15 @@ export async function authorizeGatewayConnect(params: {
   const { auth, connectAuth, req, trustedProxies } = params;
   const tailscaleWhois = params.tailscaleWhois ?? readTailscaleWhoisIdentity;
   const localDirect = isLocalDirectRequest(req, trustedProxies);
+
+  // Enterprise JWT auth: try first if enterprise mode is active
+  if (isEnterpriseMode() && req) {
+    const jwtResult = await tryJwtAuth(req);
+    if (jwtResult !== null) {
+      return jwtResult;
+    }
+    // No JWT token present - fall through to existing auth methods
+  }
 
   if (auth.allowTailscale && !localDirect) {
     const tailscaleCheck = await resolveVerifiedTailscaleUser({

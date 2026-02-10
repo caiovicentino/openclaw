@@ -1,0 +1,35 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: openclaw-postgres
+    environment:
+      POSTGRES_DB: openclaw
+      POSTGRES_USER: openclaw
+      POSTGRES_PASSWORD: openclaw_dev_2026
+    ports:
+      - "5433:5432"
+    volumes:
+      - openclaw_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U openclaw -d openclaw"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: openclaw-redis
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - openclaw_redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  openclaw_pgdata:
+  openclaw_redis:

@@ -5,6 +5,117 @@ import type { EmbeddedContextFile } from "./pi-embedded-helpers.js";
 import { SILENT_REPLY_TOKEN } from "../auto-reply/tokens.js";
 import { listDeliverableMessageChannels } from "../utils/message-channel.js";
 
+// ---------------------------------------------------------------------------
+// Enterprise context types & builder
+// ---------------------------------------------------------------------------
+
+export type EnterpriseContext = {
+  orgName: string;
+  department?: string;
+  userName?: string;
+  roles: string[];
+  dataAccessScope?: string;
+  complianceNotice?: string;
+};
+
+/**
+ * Sanitizes a string for safe inclusion in a system prompt.
+ * Strips markdown formatting characters and newlines to prevent prompt injection.
+ */
+function sanitizePromptValue(value: string): string {
+  return value
+    .replace(/[\r\n]+/g, " ")
+    .replace(/[#*_`~\[\]|>!]/g, "")
+    .trim();
+}
+
+function buildEnterpriseSection(ctx: EnterpriseContext | undefined): string[] {
+  if (!ctx) {
+    return [];
+  }
+  const orgName = sanitizePromptValue(ctx.orgName);
+  const userName = ctx.userName ? sanitizePromptValue(ctx.userName) : undefined;
+  const lines: string[] = ["## Enterprise Context"];
+  lines.push(`Organization: ${orgName}`);
+  if (userName) {
+    lines.push(`User: ${userName}`);
+  }
+  if (ctx.department) {
+    lines.push(`Department: ${sanitizePromptValue(ctx.department)}`);
+  }
+  if (ctx.roles.length > 0) {
+    lines.push(`Roles: ${ctx.roles.map(sanitizePromptValue).join(", ")}`);
+  }
+  if (ctx.dataAccessScope) {
+    lines.push(`Data access: ${sanitizePromptValue(ctx.dataAccessScope)}`);
+  }
+  if (ctx.complianceNotice) {
+    lines.push("", `Compliance: ${sanitizePromptValue(ctx.complianceNotice)}`);
+  }
+  lines.push("");
+  return lines;
+}
+
+// Enterprise context section - added to system prompt when in enterprise mode
+export function buildEnterpriseContextSection(params: {
+  tenantName: string;
+  userName: string;
+  userEmail: string;
+  department: string;
+  roles: string[];
+  permissions: string[];
+  complianceNotice?: string;
+}): string[] {
+  const safeTenant = sanitizePromptValue(params.tenantName);
+  const safeUser = sanitizePromptValue(params.userName);
+  const safeEmail = sanitizePromptValue(params.userEmail);
+  const safeDept = sanitizePromptValue(params.department);
+  const lines: string[] = [];
+  lines.push("## Organization Context");
+  lines.push(`You are an AI assistant for ${safeTenant}.`);
+  lines.push(
+    `You are currently assisting ${safeUser} (${safeEmail}) from the ${safeDept} department.`,
+  );
+  lines.push(`Their roles: ${params.roles.map(sanitizePromptValue).join(", ")}.`);
+  lines.push("");
+  return lines;
+}
+
+export function buildDataAccessBoundarySection(params: {
+  department: string;
+  allowedDepartments: string[];
+  dataClassification: string;
+  canAccessConfidential: boolean;
+}): string[] {
+  const lines: string[] = [];
+  lines.push("## Data Access Boundaries");
+  lines.push(
+    `You may access data related to: ${params.allowedDepartments.map(sanitizePromptValue).join(", ")}.`,
+  );
+  if (!params.canAccessConfidential) {
+    lines.push(
+      "You must NOT access or reveal confidential, financial, or HR data unless the user has explicit permission.",
+    );
+  }
+  lines.push(
+    `Current data classification level: ${sanitizePromptValue(params.dataClassification)}.`,
+  );
+  lines.push("");
+  return lines;
+}
+
+export function buildComplianceNoticeSection(params: { notices: string[] }): string[] {
+  const lines: string[] = [];
+  lines.push("## Compliance Notice");
+  lines.push("All conversations are logged and may be reviewed for compliance purposes.");
+  for (const notice of params.notices) {
+    lines.push(`- ${sanitizePromptValue(notice)}`);
+  }
+  lines.push("Do not share sensitive company data outside authorized channels.");
+  lines.push("");
+  return lines;
+}
+
 /**
  * Controls which hardcoded sections are included in the system prompt.
  * - "full": All sections (default, for main agent)
@@ -214,6 +325,8 @@ export function buildAgentSystemPrompt(params: {
     channel: string;
   };
   memoryCitationsMode?: MemoryCitationsMode;
+  /** Enterprise tenant context injected when running in enterprise mode. */
+  enterpriseContext?: EnterpriseContext;
 }) {
   const coreToolSummaries: Record<string, string> = {
     read: "Read file contents",
@@ -411,6 +524,7 @@ export function buildAgentSystemPrompt(params: {
     "Use plain human language for narration unless in a technical context.",
     "",
     ...safetySection,
+    ...buildEnterpriseSection(params.enterpriseContext),
     "## OpenClaw CLI Quick Reference",
     "OpenClaw is controlled via subcommands. Do not invent commands.",
     "To manage the Gateway daemon service (start/stop/restart):",

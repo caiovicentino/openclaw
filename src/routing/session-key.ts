@@ -11,6 +11,89 @@ export const DEFAULT_AGENT_ID = "main";
 export const DEFAULT_MAIN_KEY = "main";
 export const DEFAULT_ACCOUNT_ID = "default";
 
+// ---------------------------------------------------------------------------
+// Enterprise tenant-scoped session keys
+// Format: tenant:{tenantId}:agent:{agentId}:user:{userId}:{rest}
+// When no tenantId is provided the key is returned unchanged (backward compat).
+// ---------------------------------------------------------------------------
+
+export type TenantKeyParams = {
+  tenantId?: string | null;
+  userId?: string | null;
+};
+
+export type ParsedTenantSessionKey = {
+  tenantId: string;
+  userId: string | null;
+  innerKey: string;
+};
+
+/**
+ * Wrap a plain session key with tenant / user segments.
+ * Returns the key unchanged when `tenantId` is falsy.
+ */
+export function withTenantPrefix(key: string, tenant?: TenantKeyParams): string {
+  const tenantId = (tenant?.tenantId ?? "").trim();
+  if (!tenantId) return key;
+  const userId = (tenant?.userId ?? "").trim();
+  if (userId) {
+    return `tenant:${tenantId}:user:${userId}:${key}`;
+  }
+  return `tenant:${tenantId}:${key}`;
+}
+
+/**
+ * Strip the tenant prefix from a session key and return the parsed parts.
+ * Returns `null` when the key does not contain a tenant prefix.
+ */
+export function parseTenantSessionKey(
+  sessionKey: string | undefined | null,
+): ParsedTenantSessionKey | null {
+  const raw = (sessionKey ?? "").trim();
+  if (!raw.startsWith("tenant:")) return null;
+
+  const parts = raw.split(":");
+  // Minimum: tenant:{id}:{innerKey...}
+  if (parts.length < 3) return null;
+
+  const tenantId = parts[1];
+  if (!tenantId) return null;
+
+  // Check for optional user segment: tenant:{id}:user:{uid}:{rest}
+  if (parts[2] === "user" && parts.length >= 5) {
+    const userId = parts[3];
+    const innerKey = parts.slice(4).join(":");
+    return { tenantId, userId: userId || null, innerKey };
+  }
+
+  const innerKey = parts.slice(2).join(":");
+  return { tenantId, userId: null, innerKey };
+}
+
+/**
+ * Strip the tenant prefix from a session key, returning just the inner key.
+ * If no tenant prefix exists the key is returned as-is.
+ */
+export function stripTenantPrefix(sessionKey: string): string {
+  const parsed = parseTenantSessionKey(sessionKey);
+  return parsed ? parsed.innerKey : sessionKey;
+}
+
+/**
+ * Build a tenant-prefixed session key from explicit parts.
+ * Produces: tenant:{tenantId}:user:{userId}:{baseKey}
+ */
+export function buildTenantSessionKey(tenantId: string, userId: string, baseKey: string): string {
+  return `tenant:${tenantId}:user:${userId}:${baseKey}`;
+}
+
+/**
+ * Check whether a key uses the tenant-prefixed format.
+ */
+export function isTenantSessionKey(key: string): boolean {
+  return key.startsWith("tenant:");
+}
+
 // Pre-compiled regex
 const VALID_ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/i;
 const INVALID_CHARS_RE = /[^a-z0-9_-]+/g;
@@ -31,30 +114,42 @@ export function toAgentRequestSessionKey(storeKey: string | undefined | null): s
   if (!raw) {
     return undefined;
   }
-  return parseAgentSessionKey(raw)?.rest ?? raw;
+  // Strip tenant prefix before extracting the request-level key
+  const inner = raw.startsWith("tenant:") ? stripTenantPrefix(raw) : raw;
+  return parseAgentSessionKey(inner)?.rest ?? inner;
 }
 
 export function toAgentStoreSessionKey(params: {
   agentId: string;
   requestKey: string | undefined | null;
   mainKey?: string | undefined;
+  tenant?: TenantKeyParams;
 }): string {
   const raw = (params.requestKey ?? "").trim();
   if (!raw || raw === DEFAULT_MAIN_KEY) {
-    return buildAgentMainSessionKey({ agentId: params.agentId, mainKey: params.mainKey });
+    return buildAgentMainSessionKey({
+      agentId: params.agentId,
+      mainKey: params.mainKey,
+      tenant: params.tenant,
+    });
   }
   const lowered = raw.toLowerCase();
+  let key: string;
   if (lowered.startsWith("agent:")) {
-    return lowered;
+    key = lowered;
+  } else if (lowered.startsWith("subagent:")) {
+    key = `agent:${normalizeAgentId(params.agentId)}:${lowered}`;
+  } else {
+    key = `agent:${normalizeAgentId(params.agentId)}:${lowered}`;
   }
-  if (lowered.startsWith("subagent:")) {
-    return `agent:${normalizeAgentId(params.agentId)}:${lowered}`;
-  }
-  return `agent:${normalizeAgentId(params.agentId)}:${lowered}`;
+  return withTenantPrefix(key, params.tenant);
 }
 
 export function resolveAgentIdFromSessionKey(sessionKey: string | undefined | null): string {
-  const parsed = parseAgentSessionKey(sessionKey);
+  // Strip tenant prefix before parsing the agent segment
+  const raw = (sessionKey ?? "").trim();
+  const inner = raw.startsWith("tenant:") ? stripTenantPrefix(raw) : raw;
+  const parsed = parseAgentSessionKey(inner);
   return normalizeAgentId(parsed?.agentId ?? DEFAULT_AGENT_ID);
 }
 
@@ -117,10 +212,12 @@ export function normalizeAccountId(value: string | undefined | null): string {
 export function buildAgentMainSessionKey(params: {
   agentId: string;
   mainKey?: string | undefined;
+  tenant?: TenantKeyParams;
 }): string {
   const agentId = normalizeAgentId(params.agentId);
   const mainKey = normalizeMainKey(params.mainKey);
-  return `agent:${agentId}:${mainKey}`;
+  const key = `agent:${agentId}:${mainKey}`;
+  return withTenantPrefix(key, params.tenant);
 }
 
 export function buildAgentPeerSessionKey(params: {
@@ -133,6 +230,7 @@ export function buildAgentPeerSessionKey(params: {
   identityLinks?: Record<string, string[]>;
   /** DM session scope. */
   dmScope?: "main" | "per-peer" | "per-channel-peer" | "per-account-channel-peer";
+  tenant?: TenantKeyParams;
 }): string {
   const peerKind = params.peerKind ?? "dm";
   if (peerKind === "dm") {
@@ -153,23 +251,28 @@ export function buildAgentPeerSessionKey(params: {
     if (dmScope === "per-account-channel-peer" && peerId) {
       const channel = (params.channel ?? "").trim().toLowerCase() || "unknown";
       const accountId = normalizeAccountId(params.accountId);
-      return `agent:${normalizeAgentId(params.agentId)}:${channel}:${accountId}:dm:${peerId}`;
+      const key = `agent:${normalizeAgentId(params.agentId)}:${channel}:${accountId}:dm:${peerId}`;
+      return withTenantPrefix(key, params.tenant);
     }
     if (dmScope === "per-channel-peer" && peerId) {
       const channel = (params.channel ?? "").trim().toLowerCase() || "unknown";
-      return `agent:${normalizeAgentId(params.agentId)}:${channel}:dm:${peerId}`;
+      const key = `agent:${normalizeAgentId(params.agentId)}:${channel}:dm:${peerId}`;
+      return withTenantPrefix(key, params.tenant);
     }
     if (dmScope === "per-peer" && peerId) {
-      return `agent:${normalizeAgentId(params.agentId)}:dm:${peerId}`;
+      const key = `agent:${normalizeAgentId(params.agentId)}:dm:${peerId}`;
+      return withTenantPrefix(key, params.tenant);
     }
     return buildAgentMainSessionKey({
       agentId: params.agentId,
       mainKey: params.mainKey,
+      tenant: params.tenant,
     });
   }
   const channel = (params.channel ?? "").trim().toLowerCase() || "unknown";
   const peerId = ((params.peerId ?? "").trim() || "unknown").toLowerCase();
-  return `agent:${normalizeAgentId(params.agentId)}:${channel}:${peerKind}:${peerId}`;
+  const key = `agent:${normalizeAgentId(params.agentId)}:${channel}:${peerKind}:${peerId}`;
+  return withTenantPrefix(key, params.tenant);
 }
 
 function resolveLinkedPeerId(params: {
@@ -223,11 +326,13 @@ export function buildGroupHistoryKey(params: {
   accountId?: string | null;
   peerKind: "group" | "channel";
   peerId: string;
+  tenant?: TenantKeyParams;
 }): string {
   const channel = normalizeToken(params.channel) || "unknown";
   const accountId = normalizeAccountId(params.accountId);
   const peerId = params.peerId.trim().toLowerCase() || "unknown";
-  return `${channel}:${accountId}:${params.peerKind}:${peerId}`;
+  const key = `${channel}:${accountId}:${params.peerKind}:${peerId}`;
+  return withTenantPrefix(key, params.tenant);
 }
 
 export function resolveThreadSessionKeys(params: {
