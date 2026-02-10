@@ -6,6 +6,14 @@ RUN corepack enable && corepack prepare pnpm@10.23.0 --activate
 
 WORKDIR /app
 
+# Stack Auth publishable keys — injected at build time so Vite can inline them.
+# At runtime, start-nginx.sh also generates env-config.js from env vars as a
+# fallback/override, so either approach works.
+ARG VITE_STACK_AUTH_PROJECT_ID
+ARG VITE_STACK_AUTH_PUBLISHABLE_KEY
+ENV VITE_STACK_AUTH_PROJECT_ID=${VITE_STACK_AUTH_PROJECT_ID}
+ENV VITE_STACK_AUTH_PUBLISHABLE_KEY=${VITE_STACK_AUTH_PUBLISHABLE_KEY}
+
 # Copy workspace config for pnpm install
 COPY pnpm-workspace.yaml package.json ./
 COPY pnpm-lock.yaml* ./
