@@ -274,71 +274,34 @@ chat.post("/", requirePermission("agent:chat"), async (c) => {
   }
   if (enableTools) {
     systemPromptParts.push(
-      `# CRITICAL: You MUST Use Tools to Build Things
+      `# MANDATORY: Use Tools for All Creation Tasks
 
-You have powerful tools. When a user asks you to create, build, or make ANYTHING, you MUST use your tools. NEVER just output code or HTML as text. ALWAYS use the Write tool to create files.
+You have powerful tools and you MUST use them. When a user asks you to create, build, or make ANYTHING (websites, pages, apps, dashboards, components, scripts), you MUST use the Write tool to create actual files. This is non-negotiable.
 
 ## Your Tools
-- **Write**: Create files in the workspace. ALWAYS use this for code, HTML, configs.
+- **Write**: Create files. Use this for ALL code, HTML, CSS, JS, configs.
 - **Bash**: Run shell commands — install packages, init projects, build, test.
-- **Read**: Read existing files to understand context.
+- **Read**: Read existing files.
 - **Edit**: Modify existing files.
 - **Glob/Grep**: Search for files and content.
 - **WebSearch/WebFetch**: Search the web, call APIs, fetch data.
 - **UpdateMemory**: Save information for future conversations.
 
-## How to Handle Requests
+## How to Handle Creation Requests
 
-When a user says "create a landing page", "build a site", "make a component", etc.:
-1. Use **Write** to create each file (HTML, CSS, JS, etc.)
-2. Use **Bash** to install dependencies if needed (npm init, npm install, etc.)
-3. After creating all files, provide a brief summary of what was created
-4. Then optionally show a preview using an artifact tag
+When a user says "create a landing page", "build a dashboard", "make a site", etc.:
+1. Use the **Write** tool to create each file (index.html, styles.css, etc.)
+2. Use **Bash** to install dependencies if needed
+3. After creating all files, provide a text summary of what you created
 
-WRONG approach (never do this):
-\`\`\`
-Here's your landing page:
-<artifact type="html"><!DOCTYPE html>...</artifact>
-\`\`\`
-
-RIGHT approach (always do this):
-1. Write the file: use Write tool to create index.html
-2. Summarize: "Created index.html with the landing page"
-3. Optional preview: <artifact type="html" title="Preview">same content</artifact>
+## FORBIDDEN
+- Do NOT output HTML, CSS, or code directly in your response text
+- Do NOT use XML-like tags to wrap code output
+- Do NOT describe what you would create — actually create it using Write
+- The ONLY way to deliver code to the user is via the Write tool
 
 ## API & Data Requests
-When a user asks to connect to an API, fetch data, or access a service — the answer is YES. Use WebFetch for GET requests, or Bash with curl for complex API calls.`,
-    );
-  }
-
-  if (enableTools) {
-    systemPromptParts.push(
-      `# Artifact Previews (Secondary to Tools)
-
-After you have used the Write tool to create files, you may optionally show a visual preview using artifact tags. Artifacts are ONLY for preview — they do NOT replace actually creating files.
-
-## Syntax
-\`\`\`
-<artifact type="TYPE" title="TITLE" language="LANG">
-CONTENT
-</artifact>
-\`\`\`
-
-## Supported Types
-| Type | Use for | language attr |
-|------|---------|---------------|
-| \`html\` | HTML page preview | not needed |
-| \`code\` | Code snippet preview | e.g. "typescript" |
-| \`svg\` | SVG preview | not needed |
-| \`mermaid\` | Diagram preview | not needed |
-| \`react-component\` | React component preview | not needed |
-
-## Rules
-- FIRST use Write tool to create the actual files, THEN show an artifact preview
-- Never use artifacts as a substitute for creating files with the Write tool
-- The title attribute is required
-- For html: include complete self-contained HTML with inline CSS/JS
-- Short code (< 15 lines) should stay inline as markdown code blocks`,
+When asked to connect to an API or fetch data — use WebFetch or Bash with curl.`,
     );
   } else {
     systemPromptParts.push(

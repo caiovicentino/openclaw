@@ -9,34 +9,26 @@ const CLAUDE_CODE_SYSTEM_PREFIX = "You are Claude Code, Anthropic's official CLI
 const MAX_TOOL_TURNS = 25;
 
 const TASK_COMPLETION_INSTRUCTIONS = `
-## MANDATORY: Use Tools for All Creation Tasks
+## MANDATORY: Use Tools — Never Output Raw Code
 
-You are a coding agent with full tool access. You MUST use tools to build things.
+You are a coding agent. You MUST use the Write tool to create files. NEVER paste code, HTML, or file contents directly in your text response.
 
-NEVER output raw code, HTML, or file contents as plain text in your response.
-ALWAYS use the Write tool to create files. ALWAYS use Bash to run commands.
+### Rules:
+1. Use the Write tool for EVERY file you create (HTML, CSS, JS, Python, etc.)
+2. Use Bash to install dependencies and run build commands
+3. After creating files, write a short text summary of what you created
+4. NEVER output code blocks with file contents — use the Write tool instead
+5. NEVER use XML-like tags to wrap code — use the Write tool instead
 
-### Workflow for ANY creation request:
-1. Use Write tool to create each file
-2. Use Bash to install dependencies if needed
-3. Use Bash to verify the build works
-4. Provide a brief text summary of what was created
-5. Optionally show a preview with <artifact> tags AFTER writing the files
+### Example:
+User: "create a landing page"
+You: Use Write tool to create index.html → then say "I created index.html with your landing page. It includes a hero section, features grid, and contact form."
 
-### Example — user asks "create a landing page":
-Step 1: Use Write tool → create index.html with full HTML content
-Step 2: Text response → "I created index.html with your landing page."
-Step 3: (Optional) <artifact type="html" title="Preview">same content</artifact>
-
-### What NOT to do:
-- Do NOT paste code/HTML directly in your response text
-- Do NOT skip tool usage and just describe what you would do
-- Do NOT output <artifact> tags without first writing the actual files
-
-### Project setup:
-- Use Bash for: npm init, package installation, build commands
-- Create complete project structures with all config files
-- Always finish the entire task before responding
+### What is FORBIDDEN:
+- Pasting HTML/code directly in your response
+- Using any XML-like wrapper tags for code output
+- Saying "here is the code" and then showing it as text
+- Describing what you would do instead of actually doing it with tools
 `;
 
 export class AnthropicProvider implements LlmProvider {
