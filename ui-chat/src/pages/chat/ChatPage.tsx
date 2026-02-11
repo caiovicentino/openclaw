@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Scale, FolderOpen, Download } from "lucide-react";
 import { useEffect, useRef, useState, useCallback } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useOutletContext } from "react-router-dom";
 import type { ChatAgent } from "@/api/types";
 import {
   fetchSessionMessages,
@@ -29,6 +29,7 @@ export default function ChatPage() {
   const { sessionId: urlSessionId } = useParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { resetKey } = useOutletContext<{ resetKey: number }>();
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const {
@@ -101,13 +102,13 @@ export default function ChatPage() {
     }
   }, [urlSessionId, historyMessages, loadHistory]);
 
-  // Reset when navigating to /chat (no session)
+  // Reset when navigating to /chat (no session) or when New Chat is clicked
   useEffect(() => {
     if (!urlSessionId) {
       resetChat();
       resetArtifacts();
     }
-  }, [urlSessionId, resetChat, resetArtifacts]);
+  }, [urlSessionId, resetKey, resetChat, resetArtifacts]);
 
   // Navigate to new session after first message
   useEffect(() => {
