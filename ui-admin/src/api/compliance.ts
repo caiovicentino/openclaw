@@ -1,5 +1,6 @@
 import type {
   CompliancePolicy,
+  CompliancePolicyView,
   CreatePolicyRequest,
   UpdatePolicyRequest,
   PolicyFilters,
@@ -49,18 +50,19 @@ interface BackendPolicy {
 
 export async function getPolicies(
   filters?: PolicyFilters,
-): Promise<{ items: CompliancePolicy[]; total: number }> {
+): Promise<{ items: CompliancePolicyView[]; total: number }> {
   const res = await client.get<{ policies: BackendPolicy[]; total: number }>(
     `/compliance/policies${buildQuery(filters)}`,
   );
-  // Backend uses "enabled"/"rules"; frontend CompliancePage expects "active"/"config"
-  const policies = (res.policies ?? []).map((p) => ({
-    ...p,
+  const policies: CompliancePolicyView[] = (res.policies ?? []).map((p) => ({
+    id: p.id,
+    name: p.name,
+    type: p.type,
     active: p.enabled ?? p.active ?? false,
     config: p.rules ?? p.config ?? {},
     updatedAt: p.updatedAt ?? p.updated_at ?? "",
   }));
-  return { items: policies as unknown as CompliancePolicy[], total: res.total ?? 0 };
+  return { items: policies, total: res.total ?? 0 };
 }
 
 export async function getPolicy(id: string): Promise<CompliancePolicy> {

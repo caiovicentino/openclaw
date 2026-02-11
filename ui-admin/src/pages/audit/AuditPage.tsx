@@ -601,9 +601,7 @@ export default function AuditPage() {
               >
                 <span className="font-mono">{ev.action}</span>
                 <span>--</span>
-                <span>
-                  {((ev as unknown as Record<string, unknown>).actorId as string) ?? "system"}
-                </span>
+                <span>{ev.actorId ?? "system"}</span>
               </div>
             ))}
             {liveEvents.length > 5 && (

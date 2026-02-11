@@ -10,6 +10,7 @@ import {
 } from "@/api/channels";
 import ChannelCard from "@/components/ChannelCard";
 import ChannelConfigDialog from "@/components/ChannelConfigDialog";
+import { Skeleton } from "@/components/ui/skeleton";
 import WhatsAppQrDialog from "@/components/WhatsAppQrDialog";
 
 function ChannelsPage() {
@@ -74,8 +75,15 @@ function ChannelsPage() {
 
       {isLoading ? (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="h-48 animate-pulse rounded-lg border bg-muted" />
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="rounded-lg border border-border p-5 space-y-3">
+              <div className="flex items-center gap-2">
+                <Skeleton className="h-5 w-5 rounded" />
+                <Skeleton className="h-4 w-24" />
+              </div>
+              <Skeleton className="h-3 w-full" />
+              <Skeleton className="h-3 w-2/3" />
+            </div>
           ))}
         </div>
       ) : channels.length === 0 ? (

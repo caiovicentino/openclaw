@@ -8,21 +8,13 @@ import {
 } from "@tanstack/react-table";
 import { ShieldCheck, Plus, AlertTriangle } from "lucide-react";
 import { useState } from "react";
+import type { CompliancePolicyView } from "@/api/types";
 import { getPolicies, getViolations } from "@/api/compliance";
 import SeverityBadge, { type Severity } from "@/components/SeverityBadge";
 import { Button } from "@/components/ui/button";
 import PolicyEditorDialog from "@/pages/compliance/PolicyEditorDialog";
 
 type PolicyType = "data_retention" | "rate_limit" | "content_filter" | "access_control" | "audit";
-
-interface CompliancePolicy {
-  id: string;
-  name: string;
-  type: PolicyType;
-  active: boolean;
-  updatedAt: string;
-  config: Record<string, unknown>;
-}
 
 interface ComplianceViolation {
   id: string;
@@ -46,10 +38,10 @@ const typeColors: Record<PolicyType, string> = {
   audit: "bg-violet-100 text-violet-800 dark:bg-violet-900/30 dark:text-violet-400",
 };
 
-function TypeBadge({ type }: { type: PolicyType }) {
+function TypeBadge({ type }: { type: string }) {
   return (
     <span
-      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${typeColors[type] ?? "bg-muted text-muted-foreground"}`}
+      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${typeColors[type as PolicyType] ?? "bg-muted text-muted-foreground"}`}
     >
       {type.replace(/_/g, " ")}
     </span>
@@ -69,7 +61,7 @@ function StatusDot({ active }: { active: boolean }) {
 // Policies tab
 // ---------------------------------------------------------------------------
 
-const policyCol = createColumnHelper<CompliancePolicy>();
+const policyCol = createColumnHelper<CompliancePolicyView>();
 
 const policyColumns = [
   policyCol.accessor("name", {
@@ -98,7 +90,7 @@ const policyColumns = [
 ];
 
 function PoliciesTab() {
-  const [editorPolicy, setEditorPolicy] = useState<CompliancePolicy | null | "new">(null);
+  const [editorPolicy, setEditorPolicy] = useState<CompliancePolicyView | null | "new">(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ["compliance-policies"],
@@ -106,7 +98,7 @@ function PoliciesTab() {
   });
 
   const table = useReactTable({
-    data: (data?.items ?? []) as unknown as CompliancePolicy[],
+    data: data?.items ?? [],
     columns: policyColumns,
     getCoreRowModel: getCoreRowModel(),
   });

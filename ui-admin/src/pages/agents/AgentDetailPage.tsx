@@ -20,6 +20,7 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { useParams, useNavigate } from "react-router-dom";
 import { z } from "zod";
+import type { Agent as ApiAgent, UpdateAgentRequest } from "@/api/types";
 import { getAgent, updateAgentConfig, getAgentSkills, updateAgentSkills } from "@/api/agents";
 import { client } from "@/api/client";
 import { Badge } from "@/components/ui/badge";
@@ -43,18 +44,17 @@ import HooksTab from "./HooksTab";
 import KnowledgeBaseTab from "./KnowledgeBaseTab";
 import { McpServersTab } from "./McpServersTab";
 
-// Wrappers for API functions not in agents.ts
-async function updateAgent(id: string, data: any): Promise<any> {
+async function updateAgent(id: string, data: Partial<UpdateAgentRequest>): Promise<ApiAgent> {
   return updateAgentConfig(id, data);
 }
-async function getAgentUsage(agentId: string): Promise<any> {
-  return client.get(`/agents/${agentId}/usage`);
+async function getAgentUsage(agentId: string): Promise<AgentUsage> {
+  return client.get<AgentUsage>(`/agents/${agentId}/usage`);
 }
-async function getAgentLimits(agentId: string): Promise<any> {
-  return client.get(`/agents/${agentId}/limits`);
+async function getAgentLimits(agentId: string): Promise<AgentLimits> {
+  return client.get<AgentLimits>(`/agents/${agentId}/limits`);
 }
-async function updateAgentLimits(agentId: string, data: any): Promise<any> {
-  return client.patch(`/agents/${agentId}/limits`, data);
+async function updateAgentLimits(agentId: string, data: LimitsFormValues): Promise<AgentLimits> {
+  return client.patch<AgentLimits>(`/agents/${agentId}/limits`, data);
 }
 
 // --- Types ---
@@ -76,7 +76,7 @@ interface Agent {
   createdAt: string;
   updatedAt: string;
   skipToolApproval: boolean;
-  // UI-specific fields from parameters
+  hooks?: unknown[];
   temperature: number;
   maxTokens: number;
   responseLanguage: string;
@@ -772,7 +772,7 @@ function AgentDetailPage() {
         ...raw,
         memory: raw.memory ?? null,
         projectInstructions: raw.projectInstructions ?? null,
-        skipToolApproval: (raw as any).skipToolApproval === true,
+        skipToolApproval: raw.skipToolApproval === true,
         temperature: Number(params.temperature ?? 0.7),
         maxTokens: Number(params.maxTokens ?? 4096),
         responseLanguage: String(params.responseLanguage ?? "auto"),
@@ -896,7 +896,7 @@ function AgentDetailPage() {
         </TabsContent>
 
         <TabsContent value="hooks" className="mt-6">
-          <HooksTab agentId={agent.id} hooks={(agent as any).hooks ?? []} />
+          <HooksTab agentId={agent.id} hooks={agent.hooks ?? []} />
         </TabsContent>
 
         <TabsContent value="skills" className="mt-6">

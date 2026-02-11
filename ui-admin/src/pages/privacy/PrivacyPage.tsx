@@ -11,6 +11,58 @@ import { Input } from "@/components/ui/input";
 
 type Tab = "dsar" | "consent" | "breaches";
 
+interface RawDsarRecord {
+  id: string;
+  userId?: string;
+  user_id?: string;
+  userName?: string;
+  user_name?: string;
+  type?: string;
+  requestType?: string;
+  request_type?: string;
+  status: string;
+  description?: string;
+  details?: { description?: string };
+  createdAt?: string;
+  requestedAt?: string;
+  requested_at?: string;
+  deadline?: string;
+  timeline?: DSARRecord["timeline"];
+  completedAt?: string;
+  completed_at?: string;
+}
+
+interface RawConsentRecord {
+  userId?: string;
+  user_id?: string;
+  userName?: string;
+  user_name?: string;
+  purpose?: string;
+  granted?: boolean;
+  grantedAt?: string;
+  granted_at?: string;
+  updatedAt?: string;
+  revokedAt?: string;
+  revoked_at?: string;
+}
+
+interface RawBreachRecord {
+  id: string;
+  description?: string;
+  title?: string;
+  severity?: BreachRow["severity"];
+  usersAffected?: number;
+  affectedUsers?: number;
+  affected_users?: number;
+  discoveredAt?: string;
+  detectedAt?: string;
+  detected_at?: string;
+  notified?: boolean;
+  notifiedAt?: string | null;
+  reportedToAuthority?: boolean;
+  reportDeadline?: string;
+}
+
 interface ConsentRow {
   userId: string;
   userName: string;
@@ -35,9 +87,12 @@ interface BreachRow {
 
 async function fetchDSARRequests(): Promise<DSARRecord[]> {
   try {
-    const res = await client.get<any>("/privacy/dsar");
-    const list: any[] = res?.requests ?? res?.data ?? (Array.isArray(res) ? res : []);
-    return list.map((r: any) => ({
+    const res = await client.get<{ requests?: RawDsarRecord[]; data?: RawDsarRecord[] }>(
+      "/privacy/dsar",
+    );
+    const list: RawDsarRecord[] =
+      res?.requests ?? res?.data ?? (Array.isArray(res) ? (res as RawDsarRecord[]) : []);
+    return list.map((r) => ({
       id: r.id,
       userId: r.userId ?? r.user_id ?? "",
       userName: r.userName ?? r.user_name ?? r.userId ?? r.user_id ?? "",
@@ -70,7 +125,7 @@ function computeDeadline(startDate: string | undefined, days: number): string {
 }
 
 /** Build a minimal timeline from backend fields when no explicit timeline exists */
-function buildTimeline(r: any): DSARRecord["timeline"] {
+function buildTimeline(r: RawDsarRecord): DSARRecord["timeline"] {
   const events: DSARRecord["timeline"] = [];
   const created = r.requestedAt ?? r.requested_at ?? r.createdAt;
   if (created) {
@@ -88,9 +143,12 @@ function buildTimeline(r: any): DSARRecord["timeline"] {
 async function fetchConsents(params?: { search?: string }): Promise<ConsentRow[]> {
   try {
     const q = params?.search ? `?search=${encodeURIComponent(params.search)}` : "";
-    const res = await client.get<any>(`/privacy/consent${q}`);
-    const list: any[] = res?.consents ?? res?.data ?? (Array.isArray(res) ? res : []);
-    return list.map((r: any) => ({
+    const res = await client.get<{ consents?: RawConsentRecord[]; data?: RawConsentRecord[] }>(
+      `/privacy/consent${q}`,
+    );
+    const list: RawConsentRecord[] =
+      res?.consents ?? res?.data ?? (Array.isArray(res) ? (res as RawConsentRecord[]) : []);
+    return list.map((r) => ({
       userId: r.userId ?? r.user_id ?? "",
       userName: r.userName ?? r.user_name ?? r.userId ?? r.user_id ?? "",
       purpose: r.purpose ?? "",
@@ -104,9 +162,12 @@ async function fetchConsents(params?: { search?: string }): Promise<ConsentRow[]
 }
 async function fetchBreaches(): Promise<BreachRow[]> {
   try {
-    const res = await client.get<any>("/privacy/breaches");
-    const list: any[] = res?.breaches ?? res?.data ?? (Array.isArray(res) ? res : []);
-    return list.map((r: any) => ({
+    const res = await client.get<{ breaches?: RawBreachRecord[]; data?: RawBreachRecord[] }>(
+      "/privacy/breaches",
+    );
+    const list: RawBreachRecord[] =
+      res?.breaches ?? res?.data ?? (Array.isArray(res) ? (res as RawBreachRecord[]) : []);
+    return list.map((r) => ({
       id: r.id,
       description: r.description ?? r.title ?? "",
       severity: r.severity ?? "medium",

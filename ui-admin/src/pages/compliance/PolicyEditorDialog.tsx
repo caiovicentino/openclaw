@@ -4,19 +4,11 @@ import { X, Trash2, Loader2 } from "lucide-react";
 import { useEffect } from "react";
 import { useForm, Controller } from "react-hook-form";
 import { z } from "zod";
+import type { CompliancePolicyView } from "@/api/types";
 import { createPolicy, updatePolicy, deletePolicy } from "@/api/compliance";
 import { Button } from "@/components/ui/button";
 
 type PolicyType = "data_retention" | "rate_limit" | "content_filter" | "access_control" | "audit";
-
-interface CompliancePolicy {
-  id: string;
-  name: string;
-  type: PolicyType;
-  active: boolean;
-  updatedAt: string;
-  config: Record<string, unknown>;
-}
 
 // ---------------------------------------------------------------------------
 // Schema
@@ -36,7 +28,7 @@ type PolicyFormValues = z.infer<typeof policySchema>;
 // ---------------------------------------------------------------------------
 
 interface PolicyEditorDialogProps {
-  policy: CompliancePolicy | null; // null = create new
+  policy: CompliancePolicyView | null;
   onClose: () => void;
 }
 
