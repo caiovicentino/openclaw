@@ -20,6 +20,7 @@ export const users = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
     metadata: jsonb("metadata").default({}),
+    stackAuthId: varchar("stack_auth_id", { length: 255 }),
   },
   (table) => ({
     uniqueTenantEmail: unique().on(table.tenantId, table.email),
