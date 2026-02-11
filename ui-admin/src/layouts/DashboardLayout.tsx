@@ -162,7 +162,11 @@ export default function DashboardLayout() {
         {/* Open Chat */}
         <div className="border-t border-slate-700/50 px-3 pt-3">
           <a
-            href="http://localhost:5174"
+            href={
+              (globalThis as any).__ENV__?.VITE_CHAT_URL ||
+              import.meta.env.VITE_CHAT_URL ||
+              "http://localhost:5174"
+            }
             target="_blank"
             rel="noopener noreferrer"
             className="flex w-full items-center justify-center gap-2 rounded-lg bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-500 transition-colors"
