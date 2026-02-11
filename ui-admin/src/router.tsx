@@ -14,6 +14,7 @@ function ProtectedLayout() {
 
 // Auth pages
 const LoginPage = React.lazy(() => import("@/pages/auth/LoginPage"));
+const OAuthCallbackPage = React.lazy(() => import("@/pages/auth/OAuthCallbackPage"));
 
 // Dashboard
 const DashboardPage = React.lazy(() => import("@/pages/dashboard/DashboardPage"));
@@ -76,6 +77,14 @@ export const router = createBrowserRouter([
         element: (
           <SuspenseWrapper>
             <LoginPage />
+          </SuspenseWrapper>
+        ),
+      },
+      {
+        path: "/handler/oauth-callback",
+        element: (
+          <SuspenseWrapper>
+            <OAuthCallbackPage />
           </SuspenseWrapper>
         ),
       },
