@@ -1,5 +1,13 @@
+import { stackApp } from "@/auth/stack-client";
 import type { ChatAgent, ChatSession, ChatMessage, ChatUsage } from "./types";
 import { client } from "./client";
+
+async function getAccessToken(): Promise<string | null> {
+  const user = await stackApp.getUser();
+  if (!user) return null;
+  const authJson = await user.getAuthJson();
+  return authJson?.accessToken ?? null;
+}
 
 const BASE_URL = "/api/v1";
 
@@ -28,7 +36,7 @@ export interface UploadedFile {
 }
 
 export async function uploadFile(file: File, sessionId?: string): Promise<UploadedFile> {
-  const token = localStorage.getItem("access_token");
+  const token = await getAccessToken();
   const formData = new FormData();
   formData.append("file", file);
   if (sessionId) formData.append("sessionId", sessionId);
@@ -56,7 +64,7 @@ export async function sendChatMessage(
   signal?: AbortSignal,
   files?: UploadedFile[],
 ): Promise<void> {
-  const token = localStorage.getItem("access_token");
+  const token = await getAccessToken();
 
   const res = await fetch(`${BASE_URL}/chat`, {
     method: "POST",
@@ -231,7 +239,7 @@ export async function respondToPermissionRequest(
   approved: boolean,
   alwaysAllow = false,
 ): Promise<void> {
-  const token = localStorage.getItem("access_token");
+  const token = await getAccessToken();
   await fetch(`${BASE_URL}/chat/approve`, {
     method: "POST",
     headers: {
