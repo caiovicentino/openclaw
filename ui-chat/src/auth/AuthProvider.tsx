@@ -1,5 +1,13 @@
 import { useUser } from "@stackframe/stack";
-import { createContext, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import type { User } from "@/api/types";
 import { getMe } from "@/api/auth";
 
@@ -15,11 +23,16 @@ export const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const stackUser = useUser({ or: "return-null" });
+  const stackUserRef = useRef(stackUser);
+  stackUserRef.current = stackUser;
+
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
+  const stackUserId = stackUser?.id;
+
   const refreshUser = useCallback(async () => {
-    if (!stackUser) {
+    if (!stackUserId) {
       setUser(null);
       setIsLoading(false);
       return;
@@ -32,16 +45,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } finally {
       setIsLoading(false);
     }
-  }, [stackUser]);
+  }, [stackUserId]);
 
   useEffect(() => {
     refreshUser();
   }, [refreshUser]);
 
   const logout = useCallback(async () => {
-    await stackUser?.signOut();
+    await stackUserRef.current?.signOut();
     setUser(null);
-  }, [stackUser]);
+  }, []);
 
   const value = useMemo<AuthContextValue>(
     () => ({
