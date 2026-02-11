@@ -1,4 +1,4 @@
-import { StackProvider } from "@stackframe/stack";
+import { StackProvider, StackTheme } from "@stackframe/stack";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider } from "react-router-dom";
 import { AuthProvider } from "@/auth/AuthProvider";
@@ -18,11 +18,13 @@ const queryClient = new QueryClient({
 export default function App() {
   return (
     <StackProvider app={stackApp}>
-      <QueryClientProvider client={queryClient}>
-        <AuthProvider>
-          <RouterProvider router={router} />
-        </AuthProvider>
-      </QueryClientProvider>
+      <StackTheme>
+        <QueryClientProvider client={queryClient}>
+          <AuthProvider>
+            <RouterProvider router={router} />
+          </AuthProvider>
+        </QueryClientProvider>
+      </StackTheme>
     </StackProvider>
   );
 }
