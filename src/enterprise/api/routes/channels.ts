@@ -353,7 +353,7 @@ channels.delete(
       return notFound(c, "Channel");
     }
 
-    return c.json({ ok: true });
+    return c.body(null, 204);
   },
 );
 

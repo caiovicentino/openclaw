@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { z } from "zod";
 import type { TenantContext } from "../../context/tenant-context.js";
 import {
   createTask,
@@ -14,6 +15,24 @@ import { requirePermission } from "../../rbac/middleware.js";
 import { getTaskScheduler } from "../../services/scheduler/task-scheduler.js";
 import { badRequest, notFound, internalError } from "../errors.js";
 
+const taskListQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(200).optional().default(50),
+  offset: z.coerce.number().int().min(0).optional().default(0),
+  enabled: z.enum(["true", "false"]).optional(),
+  task_type: z.string().optional(),
+});
+
+const taskUpdateSchema = z.object({
+  name: z.string().min(1).optional(),
+  description: z.string().optional(),
+  task_type: z.string().optional(),
+  cron_expression: z.string().optional(),
+  timezone: z.string().optional(),
+  agent_id: z.string().optional(),
+  config: z.record(z.unknown()).optional(),
+  enabled: z.boolean().optional(),
+});
+
 const scheduledTasks = new Hono();
 
 // ---------------------------------------------------------------------------
@@ -22,17 +41,18 @@ const scheduledTasks = new Hono();
 
 scheduledTasks.get("/", requirePermission("admin:config"), async (c) => {
   const ctx = c.get("tenantContext") as TenantContext;
-  const limit = parseInt(c.req.query("limit") ?? "50", 10);
-  const offset = parseInt(c.req.query("offset") ?? "0", 10);
-  const enabled = c.req.query("enabled");
-  const taskType = c.req.query("task_type");
+  const parsed = taskListQuerySchema.safeParse(c.req.query());
+  if (!parsed.success) {
+    return badRequest(c, "Validation error", parsed.error.issues);
+  }
+  const { limit, offset, enabled, task_type } = parsed.data;
 
   try {
     const result = await listTasks(ctx.tenantId, {
       limit,
       offset,
       enabled: enabled !== undefined ? enabled === "true" : undefined,
-      task_type: taskType || undefined,
+      task_type: task_type || undefined,
     });
 
     return c.json({
@@ -41,7 +61,8 @@ scheduledTasks.get("/", requirePermission("admin:config"), async (c) => {
       limit,
       offset,
     });
-  } catch {
+  } catch (err) {
+    console.error("[scheduled-tasks] list tasks failed:", err);
     return internalError(c);
   }
 });
@@ -61,7 +82,8 @@ scheduledTasks.get("/:id", requirePermission("admin:config"), async (c) => {
     const executions = await getExecutionHistory(task.id, 10);
 
     return c.json({ ...task, executions });
-  } catch {
+  } catch (err) {
+    console.error("[scheduled-tasks] get task failed:", err);
     return internalError(c);
   }
 });
@@ -96,7 +118,8 @@ scheduledTasks.post("/", requirePermission("admin:config"), async (c) => {
     }
 
     return c.json(task, 201);
-  } catch {
+  } catch (err) {
+    console.error("[scheduled-tasks] create task failed:", err);
     return internalError(c);
   }
 });
@@ -109,18 +132,23 @@ scheduledTasks.patch("/:id", requirePermission("admin:config"), async (c) => {
   const ctx = c.get("tenantContext") as TenantContext;
   const id = c.req.param("id");
   const body = await c.req.json();
+  const parsed = taskUpdateSchema.safeParse(body);
+  if (!parsed.success) {
+    return badRequest(c, "Validation error", parsed.error.issues);
+  }
 
   try {
     const existing = await getTaskById(ctx.tenantId, id);
     if (!existing) return notFound(c, "Scheduled task");
 
-    const updated = await updateTask(ctx.tenantId, id, body);
+    const updated = await updateTask(ctx.tenantId, id, parsed.data);
 
     // Reload schedule
     await getTaskScheduler().reloadTask(ctx.tenantId, id);
 
     return c.json(updated);
-  } catch {
+  } catch (err) {
+    console.error("[scheduled-tasks] update task failed:", err);
     return internalError(c);
   }
 });
@@ -138,8 +166,9 @@ scheduledTasks.delete("/:id", requirePermission("admin:config"), async (c) => {
     const deleted = await deleteTask(ctx.tenantId, id);
     if (!deleted) return notFound(c, "Scheduled task");
 
-    return c.json({ ok: true });
-  } catch {
+    return c.body(null, 204);
+  } catch (err) {
+    console.error("[scheduled-tasks] delete task failed:", err);
     return internalError(c);
   }
 });
@@ -185,12 +214,14 @@ scheduledTasks.post("/:id/run", requirePermission("admin:config"), async (c) => 
 
       return c.json(completed);
     } catch (err) {
+      console.error("[scheduled-tasks] manual task execution failed:", err);
       const errorMsg = err instanceof Error ? err.message : String(err);
       const completed = await completeExecution(execution.id, "failure", undefined, errorMsg);
       await updateTask(ctx.tenantId, task.id, { last_status: "failure" });
       return c.json(completed);
     }
-  } catch {
+  } catch (err) {
+    console.error("[scheduled-tasks] run task failed:", err);
     return internalError(c);
   }
 });
@@ -210,7 +241,8 @@ scheduledTasks.get("/:id/executions", requirePermission("admin:config"), async (
 
     const executions = await getExecutionHistory(id, limit);
     return c.json({ executions });
-  } catch {
+  } catch (err) {
+    console.error("[scheduled-tasks] get execution history failed:", err);
     return internalError(c);
   }
 });

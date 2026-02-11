@@ -44,7 +44,8 @@ settings.get("/", requirePermission("admin:config"), async (c) => {
       dataRegion: row.data_region as string,
       ...stored,
     });
-  } catch {
+  } catch (err) {
+    console.error("[settings] get settings failed:", err);
     return internalError(c);
   }
 });
@@ -96,7 +97,8 @@ for (const section of SECTIONS) {
       );
 
       return c.json({ ok: true, section });
-    } catch {
+    } catch (err) {
+      console.error(`[settings] update ${section} failed:`, err);
       return internalError(c);
     }
   });
@@ -134,6 +136,7 @@ settings.post("/test-connection", requirePermission("admin:config"), async (c) =
 
     return c.json({ success: true });
   } catch (err) {
+    console.error("[settings] test connection failed:", err);
     const message = err instanceof Error ? err.message : "Connection failed";
     return c.json({ success: false, error: message });
   }

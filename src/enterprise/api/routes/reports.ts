@@ -1,11 +1,23 @@
 import { Hono } from "hono";
+import { z } from "zod";
 import type { TenantContext } from "../../context/tenant-context.js";
 import { auditRoute } from "../../audit/audit-middleware.js";
 import { getPolicies } from "../../compliance/policy-engine.js";
 import { query } from "../../db/connection.js";
 import { getUsageByTenant, getTopUsers, getDailyUsage } from "../../db/repositories/usage-repo.js";
 import { requirePermission } from "../../rbac/middleware.js";
-import { internalError } from "../errors.js";
+import { badRequest, internalError } from "../errors.js";
+
+const reportQuerySchema = z.object({
+  startDate: z.string().optional(),
+  endDate: z.string().optional(),
+  groupBy: z.enum(["user", "department"]).optional().default("user"),
+});
+
+const costReportQuerySchema = z.object({
+  startDate: z.string().optional(),
+  endDate: z.string().optional(),
+});
 
 const reports = new Hono();
 
@@ -19,12 +31,16 @@ reports.get(
   auditRoute({ action: "config.viewed", resourceType: "report_usage" }),
   async (c) => {
     const ctx = c.get("tenantContext") as TenantContext;
-    const startDate = c.req.query("startDate");
-    const endDate = c.req.query("endDate");
-    const groupBy = c.req.query("groupBy") ?? "user";
+    const parsed = reportQuerySchema.safeParse(c.req.query());
+    if (!parsed.success) {
+      return badRequest(c, "Validation error", parsed.error.issues);
+    }
+    const { groupBy } = parsed.data;
 
-    const start = startDate ? new Date(startDate) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-    const end = endDate ? new Date(endDate) : new Date();
+    const start = parsed.data.startDate
+      ? new Date(parsed.data.startDate)
+      : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const end = parsed.data.endDate ? new Date(parsed.data.endDate) : new Date();
 
     try {
       const daysDiff = Math.max(
@@ -94,6 +110,7 @@ reports.get(
         generatedAt: new Date().toISOString(),
       });
     } catch (err) {
+      console.error("[reports] get usage report failed:", err);
       return internalError(c);
     }
   },
@@ -160,6 +177,7 @@ reports.get(
         generatedAt: new Date().toISOString(),
       });
     } catch (err) {
+      console.error("[reports] get compliance report failed:", err);
       return internalError(c);
     }
   },
@@ -175,11 +193,15 @@ reports.get(
   auditRoute({ action: "config.viewed", resourceType: "report_cost" }),
   async (c) => {
     const ctx = c.get("tenantContext") as TenantContext;
-    const startDate = c.req.query("startDate");
-    const endDate = c.req.query("endDate");
+    const parsed = costReportQuerySchema.safeParse(c.req.query());
+    if (!parsed.success) {
+      return badRequest(c, "Validation error", parsed.error.issues);
+    }
 
-    const start = startDate ? new Date(startDate) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-    const end = endDate ? new Date(endDate) : new Date();
+    const start = parsed.data.startDate
+      ? new Date(parsed.data.startDate)
+      : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const end = parsed.data.endDate ? new Date(parsed.data.endDate) : new Date();
 
     try {
       const costDaysDiff = Math.max(
@@ -230,6 +252,7 @@ reports.get(
         generatedAt: new Date().toISOString(),
       });
     } catch (err) {
+      console.error("[reports] get cost report failed:", err);
       return internalError(c);
     }
   },

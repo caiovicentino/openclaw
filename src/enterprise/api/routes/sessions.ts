@@ -208,7 +208,7 @@ sessions.delete(
         sessionId,
         {},
       );
-      return c.json({ ok: true });
+      return c.body(null, 204);
     } catch (err) {
       if (err instanceof Error && err.message.includes("not found")) {
         return notFound(c, "Session");

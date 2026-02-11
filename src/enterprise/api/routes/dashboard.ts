@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { z } from "zod";
 import type { TenantContext } from "../../context/tenant-context.js";
 import { auditRoute } from "../../audit/audit-middleware.js";
 import { query } from "../../db/connection.js";
@@ -10,7 +11,25 @@ import {
   getUsageForecast,
 } from "../../db/repositories/usage-repo.js";
 import { requirePermission } from "../../rbac/middleware.js";
-import { internalError } from "../errors.js";
+import { badRequest, internalError } from "../errors.js";
+
+const daysQuerySchema = z.object({
+  days: z.coerce.number().int().min(1).max(365).optional().default(30),
+});
+
+const periodQuerySchema = z.object({
+  period: z.enum(["24h", "7d", "30d", "90d"]).optional().default("7d"),
+});
+
+const topAgentsQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(50).optional().default(10),
+  period: z.enum(["24h", "7d", "30d", "90d"]).optional().default("30d"),
+});
+
+const dateRangeQuerySchema = z.object({
+  start: z.string().optional(),
+  end: z.string().optional(),
+});
 
 const dashboard = new Hono();
 
@@ -75,6 +94,7 @@ dashboard.get(
         generatedAt: new Date().toISOString(),
       });
     } catch (err) {
+      console.error("[dashboard] get overview failed:", err);
       return internalError(c);
     }
   },
@@ -90,26 +110,29 @@ dashboard.get(
   auditRoute({ action: "config.viewed", resourceType: "dashboard_usage" }),
   async (c) => {
     const ctx = c.get("tenantContext") as TenantContext;
-    const days = parseInt(c.req.query("days") ?? "30", 10);
-    const effectiveDays = Math.min(Math.max(1, days), 365);
+    const parsed = daysQuerySchema.safeParse(c.req.query());
+    if (!parsed.success) {
+      return badRequest(c, "Validation error", parsed.error.issues);
+    }
+    const { days } = parsed.data;
 
     try {
-      const rawUsage = await getDailyUsage(ctx.tenantId, effectiveDays);
+      const rawUsage = await getDailyUsage(ctx.tenantId, days);
 
-      // Normalize to match the DailyUsageData contract expected by the frontend
       const dailyUsage = rawUsage.map((row) => ({
         date: row.date,
-        sessions: 0, // usage_records doesn't track sessions
+        sessions: 0,
         tokens: row.tokensInput + row.tokensOutput,
         cost: row.costUsd,
         activeUsers: row.uniqueUsers,
       }));
 
       return c.json({
-        days: effectiveDays,
+        days,
         dailyUsage,
       });
     } catch (err) {
+      console.error("[dashboard] get usage failed:", err);
       return internalError(c);
     }
   },
@@ -125,7 +148,11 @@ dashboard.get(
   auditRoute({ action: "config.viewed", resourceType: "dashboard_users" }),
   async (c) => {
     const ctx = c.get("tenantContext") as TenantContext;
-    const period = c.req.query("period") ?? "7d";
+    const parsed = periodQuerySchema.safeParse(c.req.query());
+    if (!parsed.success) {
+      return badRequest(c, "Validation error", parsed.error.issues);
+    }
+    const { period } = parsed.data;
 
     const intervalMap: Record<string, string> = {
       "24h": "24 hours",
@@ -165,6 +192,7 @@ dashboard.get(
         })),
       });
     } catch (err) {
+      console.error("[dashboard] get active users failed:", err);
       return internalError(c);
     }
   },
@@ -180,8 +208,11 @@ dashboard.get(
   auditRoute({ action: "config.viewed", resourceType: "dashboard_agents" }),
   async (c) => {
     const ctx = c.get("tenantContext") as TenantContext;
-    const limit = Math.min(parseInt(c.req.query("limit") ?? "10", 10), 50);
-    const period = c.req.query("period") ?? "30d";
+    const parsed = topAgentsQuerySchema.safeParse(c.req.query());
+    if (!parsed.success) {
+      return badRequest(c, "Validation error", parsed.error.issues);
+    }
+    const { limit, period } = parsed.data;
 
     const intervalMap: Record<string, string> = {
       "24h": "24 hours",
@@ -221,6 +252,7 @@ dashboard.get(
         })),
       });
     } catch (err) {
+      console.error("[dashboard] get top agents failed:", err);
       return internalError(c);
     }
   },
@@ -236,9 +268,13 @@ dashboard.get(
   auditRoute({ action: "config.viewed", resourceType: "dashboard_cost" }),
   async (c) => {
     const ctx = c.get("tenantContext") as TenantContext;
+    const parsed = dateRangeQuerySchema.safeParse(c.req.query());
+    if (!parsed.success) {
+      return badRequest(c, "Validation error", parsed.error.issues);
+    }
     const start =
-      c.req.query("start") ?? new Date(Date.now() - 30 * 86400000).toISOString().split("T")[0];
-    const end = c.req.query("end") ?? new Date().toISOString().split("T")[0];
+      parsed.data.start ?? new Date(Date.now() - 30 * 86400000).toISOString().split("T")[0];
+    const end = parsed.data.end ?? new Date().toISOString().split("T")[0];
 
     try {
       const [byModel, byAgent] = await Promise.all([
@@ -248,6 +284,7 @@ dashboard.get(
 
       return c.json({ byModel, byAgent });
     } catch (err) {
+      console.error("[dashboard] get cost breakdown failed:", err);
       return internalError(c);
     }
   },
@@ -263,14 +300,19 @@ dashboard.get(
   auditRoute({ action: "config.viewed", resourceType: "dashboard_sessions" }),
   async (c) => {
     const ctx = c.get("tenantContext") as TenantContext;
+    const parsed = dateRangeQuerySchema.safeParse(c.req.query());
+    if (!parsed.success) {
+      return badRequest(c, "Validation error", parsed.error.issues);
+    }
     const start =
-      c.req.query("start") ?? new Date(Date.now() - 30 * 86400000).toISOString().split("T")[0];
-    const end = c.req.query("end") ?? new Date().toISOString().split("T")[0];
+      parsed.data.start ?? new Date(Date.now() - 30 * 86400000).toISOString().split("T")[0];
+    const end = parsed.data.end ?? new Date().toISOString().split("T")[0];
 
     try {
       const data = await getSessionAnalytics(ctx.tenantId, start, end);
       return c.json({ data });
     } catch (err) {
+      console.error("[dashboard] get session analytics failed:", err);
       return internalError(c);
     }
   },
@@ -286,12 +328,17 @@ dashboard.get(
   auditRoute({ action: "config.viewed", resourceType: "dashboard_forecast" }),
   async (c) => {
     const ctx = c.get("tenantContext") as TenantContext;
-    const days = Math.min(parseInt(c.req.query("days") ?? "30", 10), 365);
+    const parsed = daysQuerySchema.safeParse(c.req.query());
+    if (!parsed.success) {
+      return badRequest(c, "Validation error", parsed.error.issues);
+    }
+    const { days } = parsed.data;
 
     try {
       const data = await getUsageForecast(ctx.tenantId, days);
       return c.json({ data });
     } catch (err) {
+      console.error("[dashboard] get usage forecast failed:", err);
       return internalError(c);
     }
   },
@@ -307,14 +354,19 @@ dashboard.get(
   auditRoute({ action: "config.viewed", resourceType: "dashboard_agent_perf" }),
   async (c) => {
     const ctx = c.get("tenantContext") as TenantContext;
+    const parsed = dateRangeQuerySchema.safeParse(c.req.query());
+    if (!parsed.success) {
+      return badRequest(c, "Validation error", parsed.error.issues);
+    }
     const start =
-      c.req.query("start") ?? new Date(Date.now() - 30 * 86400000).toISOString().split("T")[0];
-    const end = c.req.query("end") ?? new Date().toISOString().split("T")[0];
+      parsed.data.start ?? new Date(Date.now() - 30 * 86400000).toISOString().split("T")[0];
+    const end = parsed.data.end ?? new Date().toISOString().split("T")[0];
 
     try {
       const data = await getUsageByAgent(ctx.tenantId, start, end);
       return c.json({ data });
     } catch (err) {
+      console.error("[dashboard] get agent performance failed:", err);
       return internalError(c);
     }
   },

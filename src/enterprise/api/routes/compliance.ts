@@ -79,6 +79,7 @@ compliance.get(
 
       return c.json({ policies, total: policies.length });
     } catch (err) {
+      console.error("[compliance] list policies failed:", err);
       return internalError(c);
     }
   },
@@ -118,6 +119,7 @@ compliance.post(
 
       return c.json(policy, 201);
     } catch (err) {
+      console.error("[compliance] create policy failed:", err);
       return internalError(c);
     }
   },
@@ -163,6 +165,7 @@ compliance.patch(
       const updated = await getPolicy(policyId, ctx.tenantId);
       return c.json(updated);
     } catch (err) {
+      console.error("[compliance] update policy failed:", err);
       return internalError(c);
     }
   },
@@ -195,8 +198,9 @@ compliance.delete(
         deletedBy: ctx.userId,
       });
 
-      return c.json({ ok: true });
+      return c.body(null, 204);
     } catch (err) {
+      console.error("[compliance] delete policy failed:", err);
       return internalError(c);
     }
   },
@@ -263,6 +267,7 @@ compliance.get(
 
       return c.json({ violations, total, limit, offset });
     } catch (err) {
+      console.error("[compliance] list violations failed:", err);
       return internalError(c);
     }
   },

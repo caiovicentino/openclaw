@@ -40,6 +40,16 @@ const erasureSchema = z.object({
   confirm: z.literal(true),
 });
 
+const dsarListQuerySchema = z.object({
+  status: z.string().optional(),
+  userId: z.string().optional(),
+});
+
+const dsarUpdateSchema = z.object({
+  status: z.string().min(1),
+  response: z.string().optional(),
+});
+
 const consentSchema = z.object({
   purpose: z.enum([
     "data_processing",
@@ -109,6 +119,7 @@ privacy.post(
 
       return c.json(request, 201);
     } catch (err) {
+      console.error("[privacy] submit DSAR failed:", err);
       return internalError(c);
     }
   },
@@ -117,13 +128,18 @@ privacy.post(
 /** GET /privacy/dsar - List DSAR requests for the tenant */
 privacy.get("/dsar", requirePermission("admin:compliance"), async (c) => {
   const ctx = c.get("tenantContext") as TenantContext;
-  const status = c.req.query("status") as DsarStatus | undefined;
-  const userId = c.req.query("userId");
+  const parsed = dsarListQuerySchema.safeParse(c.req.query());
+  if (!parsed.success) {
+    return badRequest(c, "Validation error", parsed.error.issues);
+  }
+  const status = parsed.data.status as DsarStatus | undefined;
+  const userId = parsed.data.userId;
 
   try {
     const requests = await listDsarRequests(ctx.tenantId, { status, userId });
     return c.json(requests);
   } catch (err) {
+    console.error("[privacy] list DSAR requests failed:", err);
     return internalError(c);
   }
 });
@@ -137,18 +153,17 @@ privacy.patch(
     const ctx = c.get("tenantContext") as TenantContext;
     const requestId = c.req.param("id");
     const body = await c.req.json();
-    const status = body.status as DsarStatus;
-
-    if (!status) {
-      return badRequest(c, "status is required");
+    const parsed = dsarUpdateSchema.safeParse(body);
+    if (!parsed.success) {
+      return badRequest(c, "Validation error", parsed.error.issues);
     }
 
     try {
       const updated = await updateDsarStatus(
         ctx.tenantId,
         requestId,
-        status,
-        body.response,
+        parsed.data.status as DsarStatus,
+        parsed.data.response,
         ctx.userId,
       );
 
@@ -158,12 +173,13 @@ privacy.patch(
 
       await getAuditLogger().logComplianceEvent(ctx.tenantId, "privacy.dsar_updated", {
         dsarId: requestId,
-        newStatus: status,
+        newStatus: parsed.data.status,
         updatedBy: ctx.userId,
       });
 
       return c.json(updated);
     } catch (err) {
+      console.error("[privacy] update DSAR status failed:", err);
       return internalError(c);
     }
   },
@@ -187,6 +203,7 @@ privacy.get("/dsar/:id", requireAnyPermission(["admin:compliance", "agent:chat"]
 
     return c.json(request);
   } catch (err) {
+    console.error("[privacy] get DSAR request failed:", err);
     return internalError(c);
   }
 });
@@ -221,6 +238,7 @@ privacy.post(
 
       return c.json(result);
     } catch (err) {
+      console.error("[privacy] erasure request failed:", err);
       return internalError(c);
     }
   },
@@ -258,6 +276,7 @@ privacy.get(
 
       return c.json(data);
     } catch (err) {
+      console.error("[privacy] export user data failed:", err);
       return internalError(c);
     }
   },
@@ -276,6 +295,7 @@ privacy.get("/consent", requirePermission("admin:compliance"), async (c) => {
     const consents = await listTenantConsents(ctx.tenantId, { search });
     return c.json(consents);
   } catch (err) {
+    console.error("[privacy] list tenant consents failed:", err);
     return internalError(c);
   }
 });
@@ -296,6 +316,7 @@ privacy.get(
       const consents = await listUserConsents(ctx.tenantId, targetUserId);
       return c.json({ userId: targetUserId, consents });
     } catch (err) {
+      console.error("[privacy] get user consents failed:", err);
       return internalError(c);
     }
   },
@@ -354,6 +375,7 @@ privacy.post(
         return c.json({ userId: targetUserId, purpose: parsed.data.purpose, granted: false });
       }
     } catch (err) {
+      console.error("[privacy] update consent failed:", err);
       return internalError(c);
     }
   },
@@ -371,6 +393,7 @@ privacy.get("/breaches", requirePermission("admin:compliance"), async (c) => {
     const breaches = await listBreaches(ctx.tenantId);
     return c.json(breaches);
   } catch (err) {
+    console.error("[privacy] list breaches failed:", err);
     return internalError(c);
   }
 });
