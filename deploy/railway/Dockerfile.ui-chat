@@ -19,6 +19,12 @@ RUN pnpm install --no-frozen-lockfile
 # Copy ui-chat source
 COPY ui-chat/ ./ui-chat/
 
+# Stack Auth env vars (available at build time for Vite inlining)
+ARG VITE_STACK_AUTH_PROJECT_ID
+ARG VITE_STACK_AUTH_PUBLISHABLE_KEY
+ENV VITE_STACK_AUTH_PROJECT_ID=${VITE_STACK_AUTH_PROJECT_ID}
+ENV VITE_STACK_AUTH_PUBLISHABLE_KEY=${VITE_STACK_AUTH_PUBLISHABLE_KEY}
+
 # Build (skip tsc type-check, vite handles TS via esbuild)
 RUN cd ui-chat && npx vite build
 

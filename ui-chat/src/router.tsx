@@ -5,6 +5,7 @@ import { ProtectedRoute } from "@/auth/ProtectedRoute";
 const AuthLayout = lazy(() => import("@/layouts/AuthLayout"));
 const ChatLayout = lazy(() => import("@/layouts/ChatLayout"));
 const LoginPage = lazy(() => import("@/pages/auth/LoginPage"));
+const OAuthCallbackPage = lazy(() => import("@/pages/auth/OAuthCallbackPage"));
 const ChatPage = lazy(() => import("@/pages/chat/ChatPage"));
 const SharedConversationPage = lazy(() => import("@/pages/SharedConversationPage"));
 
@@ -33,6 +34,14 @@ export const router = createBrowserRouter([
         element: (
           <Suspense fallback={<Loading />}>
             <LoginPage />
+          </Suspense>
+        ),
+      },
+      {
+        path: "/handler/oauth-callback",
+        element: (
+          <Suspense fallback={<Loading />}>
+            <OAuthCallbackPage />
           </Suspense>
         ),
       },
