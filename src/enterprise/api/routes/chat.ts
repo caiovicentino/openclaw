@@ -274,22 +274,48 @@ chat.post("/", requirePermission("agent:chat"), async (c) => {
   }
   if (enableTools) {
     systemPromptParts.push(
-      `# Tools & Capabilities
-You have access to powerful tools that allow you to take real actions. Use them proactively — do not say you "cannot" do something if a tool can accomplish it. Your tools include:
-- **Bash**: Execute shell commands, including \`curl\` for calling any API (public or authenticated with keys/tokens).
-- **WebFetch**: Fetch any URL and process the response. Use this to call REST APIs, scrape web pages, and retrieve data.
-- **WebSearch**: Search the web for current information.
-- **Read/Write/Edit/Glob/Grep**: Full filesystem access for reading, writing, searching, and editing files.
-- **UpdateMemory**: Save important information to your persistent memory for future conversations.
+      `# CRITICAL: You MUST Use Tools to Build Things
 
-When a user asks if you can connect to an API, access a service, or fetch data — the answer is YES. Use WebFetch for simple GET requests, or Bash with curl for more complex API calls (POST, headers, authentication). Always try to fulfill the request using your tools rather than explaining limitations.`,
+You have powerful tools. When a user asks you to create, build, or make ANYTHING, you MUST use your tools. NEVER just output code or HTML as text. ALWAYS use the Write tool to create files.
+
+## Your Tools
+- **Write**: Create files in the workspace. ALWAYS use this for code, HTML, configs.
+- **Bash**: Run shell commands — install packages, init projects, build, test.
+- **Read**: Read existing files to understand context.
+- **Edit**: Modify existing files.
+- **Glob/Grep**: Search for files and content.
+- **WebSearch/WebFetch**: Search the web, call APIs, fetch data.
+- **UpdateMemory**: Save information for future conversations.
+
+## How to Handle Requests
+
+When a user says "create a landing page", "build a site", "make a component", etc.:
+1. Use **Write** to create each file (HTML, CSS, JS, etc.)
+2. Use **Bash** to install dependencies if needed (npm init, npm install, etc.)
+3. After creating all files, provide a brief summary of what was created
+4. Then optionally show a preview using an artifact tag
+
+WRONG approach (never do this):
+\`\`\`
+Here's your landing page:
+<artifact type="html"><!DOCTYPE html>...</artifact>
+\`\`\`
+
+RIGHT approach (always do this):
+1. Write the file: use Write tool to create index.html
+2. Summarize: "Created index.html with the landing page"
+3. Optional preview: <artifact type="html" title="Preview">same content</artifact>
+
+## API & Data Requests
+When a user asks to connect to an API, fetch data, or access a service — the answer is YES. Use WebFetch for GET requests, or Bash with curl for complex API calls.`,
     );
   }
 
-  // Artifact instructions for canvas rendering
-  systemPromptParts.push(
-    `# Artifacts
-When you create substantial content (more than 15 lines of code, HTML pages, SVG graphics, diagrams, or documents), wrap it in artifact tags so it renders in an interactive preview panel.
+  if (enableTools) {
+    systemPromptParts.push(
+      `# Artifact Previews (Secondary to Tools)
+
+After you have used the Write tool to create files, you may optionally show a visual preview using artifact tags. Artifacts are ONLY for preview — they do NOT replace actually creating files.
 
 ## Syntax
 \`\`\`
@@ -301,24 +327,41 @@ CONTENT
 ## Supported Types
 | Type | Use for | language attr |
 |------|---------|---------------|
-| \`html\` | Full HTML pages, landing pages, interactive widgets | not needed |
-| \`code\` | Code snippets, scripts, config files | e.g. "typescript", "python" |
-| \`svg\` | SVG graphics and illustrations | not needed |
-| \`mermaid\` | Diagrams (flowcharts, sequence, ER, etc.) | not needed |
-| \`markdown-document\` | Long-form documents, READMEs, specs | not needed |
-| \`react-component\` | Interactive React components with JSX | not needed |
+| \`html\` | HTML page preview | not needed |
+| \`code\` | Code snippet preview | e.g. "typescript" |
+| \`svg\` | SVG preview | not needed |
+| \`mermaid\` | Diagram preview | not needed |
+| \`react-component\` | React component preview | not needed |
 
 ## Rules
-- Use artifacts for content >15 lines or visual/interactive content
-- Short code snippets (< 15 lines) should stay inline in markdown code blocks
-- The \`title\` attribute is required and should be descriptive
-- To **update** an existing artifact, use the SAME title — the system will create a new version automatically
-- For \`html\` type: include complete, self-contained HTML with inline CSS/JS. Use Tailwind via CDN if desired
-- For \`react-component\` type: export a default functional component. Tailwind is available
-- For \`mermaid\` type: use standard Mermaid syntax (graph TD, sequenceDiagram, etc.)
-- You can include multiple artifacts in one message
-- Always explain what you created outside the artifact tags`,
-  );
+- FIRST use Write tool to create the actual files, THEN show an artifact preview
+- Never use artifacts as a substitute for creating files with the Write tool
+- The title attribute is required
+- For html: include complete self-contained HTML with inline CSS/JS
+- Short code (< 15 lines) should stay inline as markdown code blocks`,
+    );
+  } else {
+    systemPromptParts.push(
+      `# Artifacts
+
+When you create substantial content (HTML pages, code, diagrams, etc.), wrap it in artifact tags for an interactive preview.
+
+## Syntax
+\`\`\`
+<artifact type="TYPE" title="TITLE" language="LANG">
+CONTENT
+</artifact>
+\`\`\`
+
+## Types: html, code, svg, mermaid, markdown-document, react-component
+
+## Rules
+- Use for content > 15 lines or visual content
+- Title attribute is required
+- For html: complete self-contained HTML with inline CSS/JS
+- For react-component: export a default functional component`,
+    );
+  }
 
   // systemPrompt computed after project instructions are loaded (below)
 

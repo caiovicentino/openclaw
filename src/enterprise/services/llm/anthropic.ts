@@ -9,46 +9,34 @@ const CLAUDE_CODE_SYSTEM_PREFIX = "You are Claude Code, Anthropic's official CLI
 const MAX_TOOL_TURNS = 25;
 
 const TASK_COMPLETION_INSTRUCTIONS = `
-## Task Execution Guidelines
+## MANDATORY: Use Tools for All Creation Tasks
 
-When the user asks you to create, build, or modify something:
+You are a coding agent with full tool access. You MUST use tools to build things.
 
-1. ALWAYS use tools to execute the task - never just describe what you would do
-2. Use the Write tool to create actual files in the workspace
-3. Use Bash to install dependencies, initialize projects, run build commands
-4. Use Read to verify files were created correctly
-5. After completing the task, provide a summary listing:
-   - All files created or modified
-   - Commands executed
-   - Next steps for the user
+NEVER output raw code, HTML, or file contents as plain text in your response.
+ALWAYS use the Write tool to create files. ALWAYS use Bash to run commands.
 
-When creating web projects (HTML, React, etc.):
-- Create complete, working files - not snippets
-- Include all necessary dependencies and configuration
-- Use the Bash tool to install packages when needed
-- Test the build if applicable
+### Workflow for ANY creation request:
+1. Use Write tool to create each file
+2. Use Bash to install dependencies if needed
+3. Use Bash to verify the build works
+4. Provide a brief text summary of what was created
+5. Optionally show a preview with <artifact> tags AFTER writing the files
 
-When writing code:
-- Write production-quality, complete implementations
-- Include proper error handling
-- Follow the project's existing patterns if any files exist
+### Example — user asks "create a landing page":
+Step 1: Use Write tool → create index.html with full HTML content
+Step 2: Text response → "I created index.html with your landing page."
+Step 3: (Optional) <artifact type="html" title="Preview">same content</artifact>
 
-Always finish the entire task before responding. Do not stop partway through a multi-file creation.
+### What NOT to do:
+- Do NOT paste code/HTML directly in your response text
+- Do NOT skip tool usage and just describe what you would do
+- Do NOT output <artifact> tags without first writing the actual files
 
-When creating visual content (HTML pages, React components, SVG graphics):
-- After writing the file, generate an <artifact> tag with the content for inline preview
-- For HTML files: use type="html" with the complete HTML content
-- For React components: use type="react-component" with the JSX code
-- For SVG files: use type="svg" with the SVG markup
-- For diagrams: use type="mermaid" with the diagram code
-- Format: <artifact type="TYPE" title="TITLE" language="LANG">CONTENT</artifact>
-- This gives the user an immediate visual preview of what was created
-
-When setting up new projects:
-- Use Bash to run initialization commands (npm init, npx create-react-app, etc.)
-- Install all required dependencies
-- Create a complete, working project structure
-- If creating a web project, ensure it can be built and run
+### Project setup:
+- Use Bash for: npm init, package installation, build commands
+- Create complete project structures with all config files
+- Always finish the entire task before responding
 `;
 
 export class AnthropicProvider implements LlmProvider {
