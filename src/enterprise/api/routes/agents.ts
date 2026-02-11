@@ -226,10 +226,8 @@ agents.patch(
       return badRequest(c, "Validation error", parsed.error.issues);
     }
 
-    // Build a partial config object with only provided fields
     const patch: Record<string, unknown> = {};
 
-    // Copy all validated fields into the JSONB patch
     for (const [key, value] of Object.entries(parsed.data)) {
       if (value === undefined) continue;
       patch[key] =
@@ -242,19 +240,24 @@ agents.patch(
       return badRequest(c, "No fields to update");
     }
 
-    const result = await query(
-      `UPDATE agent_configs
-       SET config = config || $1::jsonb, updated_at = NOW(), updated_by = $2
-       WHERE id = $3 AND tenant_id = $4
-       RETURNING *`,
-      [JSON.stringify(patch), ctx.userId, agentId, ctx.tenantId],
-    );
+    try {
+      const result = await query(
+        `UPDATE agent_configs
+         SET config = config || $1::jsonb, updated_at = NOW()
+         WHERE id = $2 AND tenant_id = $3
+         RETURNING *`,
+        [JSON.stringify(patch), agentId, ctx.tenantId],
+      );
 
-    if (result.rows.length === 0) {
-      return notFound(c, "Agent config");
+      if (result.rows.length === 0) {
+        return notFound(c, "Agent config");
+      }
+
+      return c.json(rowToAgent(result.rows[0] as AgentConfigRow));
+    } catch (err) {
+      console.error("[agents] PATCH /config failed:", err);
+      return c.json({ error: "Internal Server Error", message: (err as Error).message }, 500);
     }
-
-    return c.json(rowToAgent(result.rows[0] as AgentConfigRow));
   },
 );
 
@@ -278,7 +281,6 @@ agents.patch(
 
     const patch: Record<string, unknown> = {};
 
-    // Copy all validated fields into the JSONB patch
     for (const [key, value] of Object.entries(parsed.data)) {
       if (value === undefined) continue;
       patch[key] =
@@ -291,19 +293,24 @@ agents.patch(
       return badRequest(c, "No fields to update");
     }
 
-    const result = await query(
-      `UPDATE agent_configs
-       SET config = config || $1::jsonb, updated_at = NOW(), updated_by = $2
-       WHERE id = $3 AND tenant_id = $4
-       RETURNING *`,
-      [JSON.stringify(patch), ctx.userId, agentId, ctx.tenantId],
-    );
+    try {
+      const result = await query(
+        `UPDATE agent_configs
+         SET config = config || $1::jsonb, updated_at = NOW()
+         WHERE id = $2 AND tenant_id = $3
+         RETURNING *`,
+        [JSON.stringify(patch), agentId, ctx.tenantId],
+      );
 
-    if (result.rows.length === 0) {
-      return notFound(c, "Agent config");
+      if (result.rows.length === 0) {
+        return notFound(c, "Agent config");
+      }
+
+      return c.json(rowToAgent(result.rows[0] as AgentConfigRow));
+    } catch (err) {
+      console.error("[agents] PATCH /:id failed:", err);
+      return c.json({ error: "Internal Server Error", message: (err as Error).message }, 500);
     }
-
-    return c.json(rowToAgent(result.rows[0] as AgentConfigRow));
   },
 );
 
