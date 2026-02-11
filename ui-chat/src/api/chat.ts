@@ -22,6 +22,8 @@ export interface StreamCallbacks {
   onText: (text: string) => void;
   onThinking?: (text: string) => void;
   onToolStream?: (data: { id: string; name: string; chunk: string; stream: string }) => void;
+  onToolStart?: (data: { name: string; summary: string }) => void;
+  onToolEnd?: (data: { name: string; success: boolean }) => void;
   onPermissionRequest?: (data: PermissionRequestData) => void;
   onDone: (data: { sessionId: string; usage: ChatUsage }) => void;
   onError: (error: string) => void;
@@ -54,6 +56,32 @@ export async function uploadFile(file: File, sessionId?: string): Promise<Upload
     throw new Error(((errBody as Record<string, unknown>)?.message as string) ?? "Upload failed");
   }
   return res.json();
+}
+
+function formatToolOutput(toolName: string, output: string): string {
+  if (!output) return "Done";
+
+  if (toolName === "Write" || toolName === "Edit") {
+    const pathMatch = output.match(/(?:wrote|edited|created|updated)\s+`?([^\s`]+)`?/i);
+    const filePath = pathMatch?.[1] || output.split("\n")[0].slice(0, 200);
+    return `File written: ${filePath}`;
+  }
+
+  if (toolName === "Read") {
+    const lineCount = output.split("\n").length;
+    const truncated =
+      output.length > 2000
+        ? output.slice(0, 2000) + `\n... (${output.length - 2000} more chars)`
+        : output;
+    return `Read ${lineCount} lines\n${truncated}`;
+  }
+
+  const limit = toolName === "WebSearch" || toolName === "WebFetch" ? 1000 : 2000;
+  if (output.length > limit) {
+    return output.slice(0, limit) + `\n... (${output.length - limit} more chars)`;
+  }
+
+  return output;
 }
 
 export async function sendChatMessage(
@@ -97,6 +125,9 @@ export async function sendChatMessage(
   const decoder = new TextDecoder();
   let buffer = "";
 
+  let lastToolName = "";
+  let hadBashStream = false;
+
   try {
     while (true) {
       const { done, value } = await reader.read();
@@ -127,43 +158,73 @@ export async function sendChatMessage(
             case "tool_use": {
               const name = data.name as string;
               const input = data.input as Record<string, unknown>;
-              // Show tool usage inline as formatted text
+              lastToolName = name;
+              hadBashStream = false;
+
               let summary = "";
-              if (name === "WebSearch") {
-                summary = `query: "${input.query}"`;
-              } else if (name === "WebFetch") {
-                summary = `url: ${input.url}`;
-              } else if (name === "Bash") {
-                summary = `$ ${(input.command as string)?.slice(0, 100)}`;
-              } else if (name === "Read" || name === "Write" || name === "Edit") {
-                summary = `${input.file_path}`;
-              } else if (name === "Glob") {
-                summary = `pattern: ${input.pattern}`;
-              } else if (name === "Grep") {
-                summary = `/${input.pattern}/`;
+              if (name === "Bash") {
+                const cmd = (input.command as string) ?? "";
+                summary = cmd.length > 80 ? cmd.slice(0, 80) + "..." : cmd;
+                callbacks.onText(`\n<terminal command="${cmd.replace(/"/g, "&quot;")}">`);
               } else {
-                summary = JSON.stringify(input).slice(0, 100);
+                if (name === "WebSearch") {
+                  summary = `query: "${input.query}"`;
+                } else if (name === "WebFetch") {
+                  summary = `url: ${input.url}`;
+                } else if (name === "Read" || name === "Write" || name === "Edit") {
+                  summary = `${input.file_path}`;
+                } else if (name === "Glob") {
+                  summary = `pattern: ${input.pattern}`;
+                } else if (name === "Grep") {
+                  summary = `/${input.pattern}/`;
+                } else {
+                  summary = JSON.stringify(input).slice(0, 100);
+                }
+                const safeName = name.replace(/"/g, "&quot;");
+                const safeSummary = summary.replace(/"/g, "&quot;");
+                callbacks.onText(`\n<toolblock name="${safeName}" summary="${safeSummary}">`);
               }
-              callbacks.onText(`\n\n\u{1F527} ${name}: ${summary}\n`);
+              callbacks.onToolStart?.({ name, summary });
               break;
             }
             case "tool_result": {
               const isErr = data.isError as boolean;
               const output = (data.output as string) || "";
-              if (isErr) {
-                callbacks.onText(`\u274C Error: ${output.slice(0, 200)}\n\n`);
+              const finishedToolName = lastToolName;
+
+              if (lastToolName === "Bash") {
+                if (isErr) {
+                  callbacks.onText(
+                    `\n❌ Error: ${output.length > 500 ? output.slice(0, 500) + "..." : output}`,
+                  );
+                } else if (!hadBashStream && output) {
+                  callbacks.onText(output);
+                }
+                callbacks.onText("</terminal>\n\n");
               } else {
-                callbacks.onText(`\u2705 Done (${output.length} chars)\n\n`);
+                const toolOutput = isErr
+                  ? `ERROR: ${output.length > 500 ? output.slice(0, 500) + "..." : output}`
+                  : formatToolOutput(lastToolName, output);
+                callbacks.onText(`${toolOutput}</toolblock>\n\n`);
               }
+              callbacks.onToolEnd?.({ name: finishedToolName, success: !isErr });
+              lastToolName = "";
+              hadBashStream = false;
               break;
             }
             case "tool_stream": {
-              callbacks.onToolStream?.({
-                id: data.id as string,
-                name: data.name as string,
-                chunk: data.chunk as string,
-                stream: data.stream as string,
-              });
+              const streamName = (data.name as string) || lastToolName;
+              if (streamName === "Bash") {
+                hadBashStream = true;
+                callbacks.onText(data.chunk as string);
+              } else {
+                callbacks.onToolStream?.({
+                  id: data.id as string,
+                  name: streamName,
+                  chunk: data.chunk as string,
+                  stream: data.stream as string,
+                });
+              }
               break;
             }
             case "tool_permission_request": {
@@ -173,6 +234,11 @@ export async function sendChatMessage(
                 toolInput: data.toolInput as Record<string, unknown>,
                 riskLevel: data.riskLevel as string,
               });
+              break;
+            }
+            case "file_created": {
+              const filePath = data.path as string;
+              callbacks.onText(`\n\u{1F4C4} Created: \`${filePath}\`\n`);
               break;
             }
             case "agent_switch":
@@ -248,4 +314,34 @@ export async function respondToPermissionRequest(
     },
     body: JSON.stringify({ sessionId, approvalId, approved, alwaysAllow }),
   });
+}
+
+export interface WorkspaceFile {
+  path: string;
+  size: number;
+  modified: string;
+}
+
+export async function fetchWorkspaceFiles(sessionId: string): Promise<WorkspaceFile[]> {
+  const res = await client.get<{ files: WorkspaceFile[] }>(`/chat/sessions/${sessionId}/files`);
+  return res.files;
+}
+
+export async function fetchFileContent(sessionId: string, filePath: string): Promise<string> {
+  const res = await client.get<{ content: string }>(
+    `/chat/sessions/${sessionId}/files/${encodeURIComponent(filePath)}`,
+  );
+  return res.content;
+}
+
+export async function downloadWorkspace(sessionId: string): Promise<Blob> {
+  const token = await getAccessToken();
+  const res = await fetch(`${BASE_URL}/chat/sessions/${sessionId}/download`, {
+    method: "POST",
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+  });
+  if (!res.ok) throw new Error("Download failed");
+  return res.blob();
 }

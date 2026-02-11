@@ -2,16 +2,54 @@ import Anthropic from "@anthropic-ai/sdk";
 import type { LlmProvider, LlmProviderConfig, LlmMessage, LlmStreamChunk } from "./provider.js";
 import { buildAnthropicClientOptions, isOAuthToken } from "./tenant-settings.js";
 import { SessionApprovalPolicy, getToolRiskLevel } from "./tool-approval.js";
-import {
-  getToolDefinitions,
-  executeTool,
-  executeToolStreaming,
-  type ToolContext,
-} from "./tools.js";
+import { getToolDefinitions, executeToolStreaming, type ToolContext } from "./tools.js";
 
 const CLAUDE_CODE_SYSTEM_PREFIX = "You are Claude Code, Anthropic's official CLI for Claude.";
 
 const MAX_TOOL_TURNS = 25;
+
+const TASK_COMPLETION_INSTRUCTIONS = `
+## Task Execution Guidelines
+
+When the user asks you to create, build, or modify something:
+
+1. ALWAYS use tools to execute the task - never just describe what you would do
+2. Use the Write tool to create actual files in the workspace
+3. Use Bash to install dependencies, initialize projects, run build commands
+4. Use Read to verify files were created correctly
+5. After completing the task, provide a summary listing:
+   - All files created or modified
+   - Commands executed
+   - Next steps for the user
+
+When creating web projects (HTML, React, etc.):
+- Create complete, working files - not snippets
+- Include all necessary dependencies and configuration
+- Use the Bash tool to install packages when needed
+- Test the build if applicable
+
+When writing code:
+- Write production-quality, complete implementations
+- Include proper error handling
+- Follow the project's existing patterns if any files exist
+
+Always finish the entire task before responding. Do not stop partway through a multi-file creation.
+
+When creating visual content (HTML pages, React components, SVG graphics):
+- After writing the file, generate an <artifact> tag with the content for inline preview
+- For HTML files: use type="html" with the complete HTML content
+- For React components: use type="react-component" with the JSX code
+- For SVG files: use type="svg" with the SVG markup
+- For diagrams: use type="mermaid" with the diagram code
+- Format: <artifact type="TYPE" title="TITLE" language="LANG">CONTENT</artifact>
+- This gives the user an immediate visual preview of what was created
+
+When setting up new projects:
+- Use Bash to run initialization commands (npm init, npx create-react-app, etc.)
+- Install all required dependencies
+- Create a complete, working project structure
+- If creating a web project, ensure it can be built and run
+`;
 
 export class AnthropicProvider implements LlmProvider {
   readonly name = "anthropic";
@@ -41,12 +79,14 @@ export class AnthropicProvider implements LlmProvider {
     let systemParam: string | Array<{ type: "text"; text: string }> | undefined;
 
     if (this.oauthMode) {
-      // OAuth tokens MUST include Claude Code identity as first content block
       const blocks: Array<{ type: "text"; text: string }> = [
         { type: "text", text: CLAUDE_CODE_SYSTEM_PREFIX },
       ];
       if (customSystemPrompt) {
         blocks.push({ type: "text", text: customSystemPrompt });
+      }
+      if (config.enableTools) {
+        blocks.push({ type: "text", text: TASK_COMPLETION_INSTRUCTIONS });
       }
       if (!config.enableTools) {
         blocks.push({
@@ -56,7 +96,13 @@ export class AnthropicProvider implements LlmProvider {
       }
       systemParam = blocks;
     } else {
-      systemParam = customSystemPrompt;
+      if (config.enableTools) {
+        systemParam = customSystemPrompt
+          ? `${customSystemPrompt}\n\n${TASK_COMPLETION_INSTRUCTIONS}`
+          : TASK_COMPLETION_INSTRUCTIONS;
+      } else {
+        systemParam = customSystemPrompt;
+      }
     }
 
     // Build tool definitions if enabled, merging MCP tools
@@ -206,7 +252,6 @@ export class AnthropicProvider implements LlmProvider {
             }
           }
 
-          // Emit tool_result event to client
           yield {
             type: "tool_result" as const,
             toolResult: {
@@ -216,6 +261,17 @@ export class AnthropicProvider implements LlmProvider {
               isError: toolResult.isError,
             },
           };
+
+          if ((tu.name === "Write" || tu.name === "Edit") && !toolResult.isError) {
+            const filePath = (tu.input as Record<string, unknown>).file_path as string;
+            yield {
+              type: "file_created" as const,
+              fileCreated: {
+                path: filePath,
+                toolName: tu.name,
+              },
+            };
+          }
 
           toolResults.push({
             type: "tool_result",

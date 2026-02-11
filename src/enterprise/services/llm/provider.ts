@@ -15,6 +15,7 @@ export interface LlmStreamChunk {
     | "tool_result"
     | "tool_stream"
     | "tool_permission_request"
+    | "file_created"
     | "usage"
     | "done"
     | "error";
@@ -34,6 +35,7 @@ export interface LlmStreamChunk {
     toolInput: Record<string, unknown>;
     riskLevel: string;
   };
+  fileCreated?: { path: string; toolName: string };
   usage?: { inputTokens: number; outputTokens: number };
   error?: string;
 }

@@ -1,5 +1,6 @@
-import { Download, Share2, Link, Check } from "lucide-react";
+import { Download, Share2, Link, Check, FolderArchive } from "lucide-react";
 import { useState } from "react";
+import { downloadWorkspace, fetchWorkspaceFiles } from "@/api/chat";
 import { client } from "@/api/client";
 import {
   DropdownMenu,
@@ -35,6 +36,24 @@ export function ExportShareMenu({ sessionId }: ExportShareMenuProps) {
     URL.revokeObjectURL(url);
   }
 
+  async function handleDownloadWorkspace() {
+    try {
+      const files = await fetchWorkspaceFiles(sessionId);
+      if (files.length === 0) return;
+      const blob = await downloadWorkspace(sessionId);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `workspace-${sessionId}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch {
+      // silently fail
+    }
+  }
+
   async function handleShare() {
     setSharing(true);
     try {
@@ -68,6 +87,10 @@ export function ExportShareMenu({ sessionId }: ExportShareMenuProps) {
         <DropdownMenuItem onClick={() => handleExport("json")}>
           <Download className="h-4 w-4" />
           JSON (.json)
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={handleDownloadWorkspace}>
+          <FolderArchive className="h-4 w-4" />
+          Download Workspace
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuLabel>Share</DropdownMenuLabel>

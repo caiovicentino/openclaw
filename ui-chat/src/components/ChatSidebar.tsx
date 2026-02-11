@@ -1,10 +1,10 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { isToday, isYesterday, isThisWeek, isThisMonth } from "date-fns";
-import { Plus, MessageSquare, Trash2, LogOut, X, Search, Moon, Sun } from "lucide-react";
-import { useState, useMemo } from "react";
+import { Plus, MessageSquare, Trash2, Pencil, LogOut, X, Search, Moon, Sun } from "lucide-react";
+import { useState, useMemo, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import type { ChatSession } from "@/api/types";
-import { fetchSessions, deleteSessionApi } from "@/api/chat";
+import { fetchSessions, deleteSessionApi, renameSession } from "@/api/chat";
 import { useAuth } from "@/auth/useAuth";
 import { Button } from "@/components/ui/button";
 import { useTheme } from "@/hooks/useTheme";
@@ -51,6 +51,9 @@ export function ChatSidebar({ activeSessionId, onNewChat, open, onClose }: ChatS
 
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState("");
+  const editInputRef = useRef<HTMLInputElement>(null);
 
   const { data: sessions = [] } = useQuery<ChatSession[]>({
     queryKey: ["chat-sessions"],
@@ -80,6 +83,37 @@ export function ChatSidebar({ activeSessionId, onNewChat, open, onClose }: ChatS
       setTimeout(() => setDeleteError(null), 3000);
     }
   }
+
+  function startEditing(e: React.MouseEvent, session: ChatSession) {
+    e.stopPropagation();
+    setEditingId(session.id);
+    setEditValue(session.title);
+  }
+
+  async function commitRename() {
+    if (!editingId) return;
+    const trimmed = editValue.trim();
+    if (trimmed && trimmed !== sessions.find((s) => s.id === editingId)?.title) {
+      try {
+        await renameSession(editingId, trimmed);
+        queryClient.invalidateQueries({ queryKey: ["chat-sessions"] });
+      } catch {
+        // silently fail
+      }
+    }
+    setEditingId(null);
+  }
+
+  function cancelEditing() {
+    setEditingId(null);
+  }
+
+  useEffect(() => {
+    if (editingId && editInputRef.current) {
+      editInputRef.current.focus();
+      editInputRef.current.select();
+    }
+  }, [editingId]);
 
   return (
     <>
@@ -140,8 +174,10 @@ export function ChatSidebar({ activeSessionId, onNewChat, open, onClose }: ChatS
                 <button
                   key={s.id}
                   onClick={() => {
-                    navigate(`/chat/${s.id}`);
-                    onClose();
+                    if (editingId !== s.id) {
+                      navigate(`/chat/${s.id}`);
+                      onClose();
+                    }
                   }}
                   className={cn(
                     "group flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm transition-colors hover:bg-accent",
@@ -149,18 +185,53 @@ export function ChatSidebar({ activeSessionId, onNewChat, open, onClose }: ChatS
                   )}
                 >
                   <MessageSquare className="h-4 w-4 shrink-0 text-muted-foreground" />
-                  <span className="flex-1 truncate">{s.title}</span>
-                  <div
-                    role="button"
-                    tabIndex={0}
-                    onClick={(e) => handleDelete(e, s.id)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") handleDelete(e as unknown as React.MouseEvent, s.id);
-                    }}
-                    className="hidden shrink-0 rounded p-1 text-muted-foreground hover:text-destructive group-hover:block"
-                  >
-                    <Trash2 className="h-3 w-3" />
-                  </div>
+                  {editingId === s.id ? (
+                    <input
+                      ref={editInputRef}
+                      value={editValue}
+                      onChange={(e) => setEditValue(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          commitRename();
+                        }
+                        if (e.key === "Escape") {
+                          e.preventDefault();
+                          cancelEditing();
+                        }
+                      }}
+                      onBlur={commitRename}
+                      onClick={(e) => e.stopPropagation()}
+                      className="flex-1 rounded border border-input bg-background px-1.5 py-0.5 text-sm outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    />
+                  ) : (
+                    <>
+                      <span className="flex-1 truncate">{s.title}</span>
+                      <div
+                        role="button"
+                        tabIndex={0}
+                        onClick={(e) => startEditing(e, s)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") startEditing(e as unknown as React.MouseEvent, s);
+                        }}
+                        className="hidden shrink-0 rounded p-1 text-muted-foreground hover:text-foreground group-hover:block"
+                      >
+                        <Pencil className="h-3 w-3" />
+                      </div>
+                      <div
+                        role="button"
+                        tabIndex={0}
+                        onClick={(e) => handleDelete(e, s.id)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter")
+                            handleDelete(e as unknown as React.MouseEvent, s.id);
+                        }}
+                        className="hidden shrink-0 rounded p-1 text-muted-foreground hover:text-destructive group-hover:block"
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </div>
+                    </>
+                  )}
                 </button>
               ))}
             </div>

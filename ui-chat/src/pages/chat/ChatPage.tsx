@@ -1,9 +1,14 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Scale } from "lucide-react";
+import { Scale, FolderOpen, Download } from "lucide-react";
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import type { ChatAgent } from "@/api/types";
-import { fetchSessionMessages, fetchAgents } from "@/api/chat";
+import {
+  fetchSessionMessages,
+  fetchAgents,
+  fetchWorkspaceFiles,
+  downloadWorkspace,
+} from "@/api/chat";
 import { AgentSelector } from "@/components/AgentSelector";
 import { ArtifactPanel } from "@/components/artifacts/ArtifactPanel";
 import { ResizeHandle } from "@/components/artifacts/ResizeHandle";
@@ -13,7 +18,10 @@ import { MessageBubble } from "@/components/MessageBubble";
 import { QuotaIndicator } from "@/components/QuotaIndicator";
 import { StarterPrompts } from "@/components/StarterPrompts";
 import { ToolApprovalDialog } from "@/components/ToolApprovalDialog";
+import { ToolProgress } from "@/components/ToolProgress";
 import { TypingIndicator } from "@/components/TypingIndicator";
+import { Button } from "@/components/ui/button";
+import { WorkspaceFiles } from "@/components/WorkspaceFiles";
 import { useArtifacts } from "@/hooks/useArtifacts";
 import { useChat } from "@/hooks/useChat";
 
@@ -37,7 +45,9 @@ export default function ChatPage() {
   const {
     messages,
     isStreaming,
+    isUploading,
     sessionId: chatSessionId,
+    toolSteps,
     pendingApproval,
     sendMessage,
     stopStreaming,
@@ -51,6 +61,7 @@ export default function ChatPage() {
 
   const [selectedAgentId, setSelectedAgentId] = useState("");
   const [panelPercent, setPanelPercent] = useState(45);
+  const [filesOpen, setFilesOpen] = useState(false);
 
   // Fetch agents to get default
   const { data: agents = [] } = useQuery<ChatAgent[]>({
@@ -74,6 +85,15 @@ export default function ChatPage() {
     queryFn: () => fetchSessionMessages(urlSessionId!),
     enabled: !!urlSessionId,
   });
+
+  const { data: workspaceFiles = [] } = useQuery({
+    queryKey: ["workspace-files", urlSessionId],
+    queryFn: () => fetchWorkspaceFiles(urlSessionId!),
+    enabled: !!urlSessionId,
+    refetchInterval: isStreaming ? 5000 : false,
+  });
+
+  const hasFiles = workspaceFiles.length > 0;
 
   useEffect(() => {
     if (urlSessionId && historyMessages) {
@@ -106,7 +126,9 @@ export default function ChatPage() {
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        if (panelOpen) {
+        if (filesOpen) {
+          setFilesOpen(false);
+        } else if (panelOpen) {
           closePanel();
         } else if (isStreaming) {
           stopStreaming();
@@ -115,7 +137,7 @@ export default function ChatPage() {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [panelOpen, isStreaming, closePanel, stopStreaming]);
+  }, [filesOpen, panelOpen, isStreaming, closePanel, stopStreaming]);
 
   const handleSend = useCallback(
     (text: string, files?: File[]) => {
@@ -154,13 +176,52 @@ export default function ChatPage() {
       {/* Chat column */}
       <div
         className="flex flex-1 flex-col overflow-hidden"
-        style={panelOpen ? { flexBasis: `${100 - panelPercent}%`, flexGrow: 0 } : undefined}
+        style={
+          panelOpen || filesOpen ? { flexBasis: `${100 - panelPercent}%`, flexGrow: 0 } : undefined
+        }
       >
         {/* Session header with export/share and quota */}
         {activeSessionId && messages.length > 0 && (
           <div className="flex items-center justify-between border-b px-4 py-1.5">
             <QuotaIndicator />
-            <ExportShareMenu sessionId={activeSessionId} />
+            <div className="flex items-center gap-2">
+              {hasFiles && (
+                <>
+                  <Button
+                    variant={filesOpen ? "secondary" : "ghost"}
+                    size="sm"
+                    onClick={() => setFilesOpen((v) => !v)}
+                    className="h-7 gap-1.5 text-xs"
+                  >
+                    <FolderOpen className="h-3.5 w-3.5" />
+                    Files ({workspaceFiles.length})
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 gap-1.5 text-xs"
+                    onClick={async () => {
+                      if (!urlSessionId) return;
+                      try {
+                        const blob = await downloadWorkspace(urlSessionId);
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement("a");
+                        a.href = url;
+                        a.download = `workspace-${urlSessionId}.zip`;
+                        a.click();
+                        URL.revokeObjectURL(url);
+                      } catch {
+                        // silently fail
+                      }
+                    }}
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                    Download
+                  </Button>
+                </>
+              )}
+              <ExportShareMenu sessionId={activeSessionId} />
+            </div>
           </div>
         )}
 
@@ -203,11 +264,13 @@ export default function ChatPage() {
           )}
         </div>
 
-        {/* Input area */}
+        <ToolProgress steps={toolSteps} isStreaming={isStreaming} />
+
         <ChatInput
           onSend={handleSend}
           onStop={stopStreaming}
           isStreaming={isStreaming}
+          isUploading={isUploading}
           disabled={!selectedAgentId}
           placeholder={selectedAgentId ? "Type a message..." : "Select an agent first"}
         />
@@ -226,7 +289,6 @@ export default function ChatPage() {
       {/* Artifact panel */}
       {panelOpen && activeArtifact && (
         <>
-          {/* Desktop: side panel with resize */}
           <div className="hidden lg:contents">
             <ResizeHandle onResize={setPanelPercent} />
             <div
@@ -242,13 +304,38 @@ export default function ChatPage() {
             </div>
           </div>
 
-          {/* Mobile: fullscreen overlay */}
           <div className="fixed inset-0 z-50 flex flex-col bg-background lg:hidden">
             <ArtifactPanel
               artifact={activeArtifact}
               versions={versionHistory.get(activeArtifact.title) ?? []}
               onClose={closePanel}
               onNavigateVersion={(v) => navigateVersion(activeArtifact.title, v)}
+            />
+          </div>
+        </>
+      )}
+
+      {filesOpen && activeSessionId && !panelOpen && (
+        <>
+          <div className="hidden lg:contents">
+            <ResizeHandle onResize={setPanelPercent} />
+            <div
+              className="flex flex-col overflow-hidden border-l"
+              style={{ flexBasis: `${panelPercent}%`, flexGrow: 0, flexShrink: 0 }}
+            >
+              <WorkspaceFiles
+                sessionId={activeSessionId}
+                isStreaming={isStreaming}
+                onClose={() => setFilesOpen(false)}
+              />
+            </div>
+          </div>
+
+          <div className="fixed inset-0 z-50 flex flex-col bg-background lg:hidden">
+            <WorkspaceFiles
+              sessionId={activeSessionId}
+              isStreaming={isStreaming}
+              onClose={() => setFilesOpen(false)}
             />
           </div>
         </>

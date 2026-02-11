@@ -1,4 +1,4 @@
-import { Send, Square, Paperclip } from "lucide-react";
+import { Send, Square, Paperclip, Loader2 } from "lucide-react";
 import { useState, useRef, useCallback } from "react";
 import { FileAttachment } from "@/components/FileAttachment";
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,7 @@ interface ChatInputProps {
   onSend: (message: string, files?: File[]) => void;
   onStop?: () => void;
   isStreaming?: boolean;
+  isUploading?: boolean;
   disabled?: boolean;
   placeholder?: string;
 }
@@ -19,6 +20,7 @@ export function ChatInput({
   onSend,
   onStop,
   isStreaming,
+  isUploading,
   disabled,
   placeholder = "Type a message...",
 }: ChatInputProps) {
@@ -112,8 +114,8 @@ export function ChatInput({
       onDrop={handleDrop}
     >
       <div className="mx-auto max-w-3xl">
-        {files.length > 0 && (
-          <div className="mb-2 flex flex-wrap gap-2">
+        {(files.length > 0 || isUploading) && (
+          <div className="mb-2 flex flex-wrap items-center gap-2">
             {files.map((file, i) => (
               <FileAttachment
                 key={`${file.name}-${file.size}`}
@@ -121,6 +123,12 @@ export function ChatInput({
                 onRemove={() => removeFile(i)}
               />
             ))}
+            {isUploading && (
+              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                <span>Uploading files…</span>
+              </div>
+            )}
           </div>
         )}
         <div className="flex items-end gap-2">

@@ -5,6 +5,12 @@ import type { Artifact } from "@/types/artifact";
 import { sendChatMessage, uploadFile, respondToPermissionRequest } from "@/api/chat";
 import { ArtifactStreamParser } from "@/lib/artifact-parser";
 
+export interface ToolStep {
+  name: string;
+  summary: string;
+  status: "running" | "done" | "error";
+}
+
 interface UseChatOptions {
   onArtifact?: (artifact: Artifact) => void;
   onPartialArtifact?: (content: string) => void;
@@ -13,8 +19,10 @@ interface UseChatOptions {
 export function useChat(options?: UseChatOptions) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [pendingApproval, setPendingApproval] = useState<PermissionRequestData | null>(null);
+  const [toolSteps, setToolSteps] = useState<ToolStep[]>([]);
   const abortRef = useRef<AbortController | null>(null);
   const thinkingBufferRef = useRef<string>("");
   const parserRef = useRef<ArtifactStreamParser>(new ArtifactStreamParser());
@@ -70,6 +78,7 @@ export function useChat(options?: UseChatOptions) {
 
       setMessages((prev) => [...prev, userMsg, assistantMsg]);
       setIsStreaming(true);
+      setToolSteps([]);
       thinkingBufferRef.current = "";
 
       // Reset parser for new message
@@ -80,12 +89,16 @@ export function useChat(options?: UseChatOptions) {
       abortRef.current = controller;
 
       try {
-        // Upload files first if present
         let uploadedFiles;
         if (files?.length) {
-          uploadedFiles = await Promise.all(
-            files.map((f) => uploadFile(f, sessionId ?? undefined)),
-          );
+          setIsUploading(true);
+          try {
+            uploadedFiles = await Promise.all(
+              files.map((f) => uploadFile(f, sessionId ?? undefined)),
+            );
+          } finally {
+            setIsUploading(false);
+          }
         }
 
         await sendChatMessage(
@@ -124,6 +137,24 @@ export function useChat(options?: UseChatOptions) {
               if (result.isInsideArtifact && result.partialContent) {
                 optionsRef.current?.onPartialArtifact?.(result.partialContent);
               }
+            },
+            onToolStart: (data) => {
+              setToolSteps((prev) => [
+                ...prev,
+                { name: data.name, summary: data.summary, status: "running" },
+              ]);
+            },
+            onToolEnd: (data) => {
+              setToolSteps((prev) => {
+                const updated = [...prev];
+                for (let i = updated.length - 1; i >= 0; i--) {
+                  if (updated[i].status === "running") {
+                    updated[i] = { ...updated[i], status: data.success ? "done" : "error" };
+                    break;
+                  }
+                }
+                return updated;
+              });
             },
             onPermissionRequest: (data) => {
               setPendingApproval(data);
@@ -187,6 +218,7 @@ export function useChat(options?: UseChatOptions) {
     setSessionId(null);
     setIsStreaming(false);
     setPendingApproval(null);
+    setToolSteps([]);
     parserRef.current.reset();
     abortRef.current?.abort();
   }, []);
@@ -216,7 +248,9 @@ export function useChat(options?: UseChatOptions) {
   return {
     messages,
     isStreaming,
+    isUploading,
     sessionId,
+    toolSteps,
     pendingApproval,
     sendMessage,
     stopStreaming,

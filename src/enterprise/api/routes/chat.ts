@@ -1,6 +1,12 @@
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
+import { exec } from "node:child_process";
+import fs from "node:fs/promises";
+import path from "node:path";
+import { promisify } from "node:util";
 import { z } from "zod";
+
+const execAsync = promisify(exec);
 import type { TenantContext } from "../../context/tenant-context.js";
 import type { LlmMessage } from "../../services/llm/index.js";
 import { getAuditLogger } from "../../audit/audit-logger.js";
@@ -540,6 +546,16 @@ CONTENT
             });
             break;
 
+          case "file_created":
+            await stream.writeSSE({
+              data: JSON.stringify({
+                type: "file_created",
+                path: chunk.fileCreated?.path,
+                toolName: chunk.fileCreated?.toolName,
+              }),
+            });
+            break;
+
           case "tool_permission_request":
             await stream.writeSSE({
               data: JSON.stringify({
@@ -672,6 +688,86 @@ chat.post("/approve", requirePermission("agent:chat"), async (c) => {
 
   const resolved = policy.resolveApproval(approvalId, approved ?? false, alwaysAllow ?? false);
   return c.json({ ok: resolved });
+});
+
+chat.get("/sessions/:id/files", requirePermission("agent:chat"), async (c) => {
+  const sessionId = c.req.param("id");
+  const workspacePath = path.join("/tmp/cerebro-workspaces", sessionId);
+
+  try {
+    await fs.access(workspacePath);
+  } catch {
+    return c.json({ files: [] });
+  }
+
+  const files: Array<{ path: string; size: number; modified: string }> = [];
+
+  async function walk(dir: string, prefix: string) {
+    const entries = await fs.readdir(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = path.join(dir, entry.name);
+      const relativePath = prefix ? `${prefix}/${entry.name}` : entry.name;
+      if (entry.name === "node_modules" || entry.name === ".git") continue;
+      if (entry.isDirectory()) {
+        await walk(fullPath, relativePath);
+      } else {
+        const stat = await fs.stat(fullPath);
+        files.push({
+          path: relativePath,
+          size: stat.size,
+          modified: stat.mtime.toISOString(),
+        });
+      }
+    }
+  }
+
+  await walk(workspacePath, "");
+  return c.json({ files });
+});
+
+chat.get("/sessions/:id/files/*", requirePermission("agent:chat"), async (c) => {
+  const sessionId = c.req.param("id");
+  const filePath = c.req.path.split("/files/").slice(1).join("/files/");
+  const workspacePath = path.join("/tmp/cerebro-workspaces", sessionId);
+  const fullPath = path.resolve(workspacePath, filePath);
+
+  if (!fullPath.startsWith(workspacePath)) {
+    return c.json({ error: "Invalid path" }, 403);
+  }
+
+  try {
+    const content = await fs.readFile(fullPath, "utf-8");
+    const stat = await fs.stat(fullPath);
+    return c.json({ path: filePath, content, size: stat.size });
+  } catch {
+    return c.json({ error: "File not found" }, 404);
+  }
+});
+
+chat.post("/sessions/:id/download", requirePermission("agent:chat"), async (c) => {
+  const sessionId = c.req.param("id");
+  const workspacePath = path.join("/tmp/cerebro-workspaces", sessionId);
+
+  try {
+    await fs.access(workspacePath);
+  } catch {
+    return c.json({ error: "No workspace files" }, 404);
+  }
+
+  const tarPath = path.join("/tmp", `workspace-${sessionId}.tar.gz`);
+  await execAsync(
+    `cd "${workspacePath}" && tar -czf "${tarPath}" --exclude=node_modules --exclude=.git .`,
+  );
+
+  const tarContent = await fs.readFile(tarPath);
+  await fs.unlink(tarPath).catch(() => {});
+
+  return new Response(tarContent, {
+    headers: {
+      "Content-Type": "application/gzip",
+      "Content-Disposition": `attachment; filename="workspace-${sessionId}.tar.gz"`,
+    },
+  });
 });
 
 export { chat };

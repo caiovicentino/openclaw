@@ -7,6 +7,8 @@ import type { ArtifactType } from "@/types/artifact";
 import { cn } from "@/lib/utils";
 import { ArtifactReference } from "./artifacts/ArtifactReference";
 import { CodeBlock } from "./CodeBlock";
+import TerminalBlock from "./TerminalBlock";
+import ToolBlock from "./ToolBlock";
 
 function ThinkingBlock({ text }: { text: string }) {
   const [open, setOpen] = useState(false);
@@ -41,30 +43,132 @@ interface MessageBubbleProps {
 }
 
 const ARTIFACT_PLACEHOLDER_RE = /\[ARTIFACT:([^:]+):([^:]+):([^\]]+)\]/g;
+const TERMINAL_BLOCK_RE = /<terminal command="([^"]*(?:&quot;[^"]*)*)">([\s\S]*?)<\/terminal>/g;
+const TERMINAL_OPEN_RE = /<terminal command="([^"]*(?:&quot;[^"]*)*)">([\s\S]*)$/;
+const TOOLBLOCK_RE = /<toolblock name="([^"]*)" summary="([^"]*)">([\s\S]*?)<\/toolblock>/g;
+const TOOLBLOCK_OPEN_RE = /<toolblock name="([^"]*)" summary="([^"]*)">([\s\S]*)$/;
 
-/** Split content into text segments and artifact reference objects */
-function splitContentWithArtifacts(content: string) {
-  const parts: Array<
-    | { type: "text"; text: string }
-    | { type: "artifact"; id: string; title: string; artifactType: ArtifactType }
-  > = [];
-  let lastIndex = 0;
+type ContentPart =
+  | { type: "text"; text: string }
+  | { type: "artifact"; id: string; title: string; artifactType: ArtifactType }
+  | { type: "terminal"; command: string; output: string; isStreaming: boolean }
+  | {
+      type: "toolblock";
+      toolName: string;
+      summary: string;
+      output: string;
+      isError: boolean;
+      isStreaming: boolean;
+    };
 
-  for (const match of content.matchAll(ARTIFACT_PLACEHOLDER_RE)) {
-    if (match.index! > lastIndex) {
-      parts.push({ type: "text", text: content.slice(lastIndex, match.index!) });
+function splitContentParts(content: string): ContentPart[] {
+  const parts: ContentPart[] = [];
+  let remaining = content;
+
+  while (remaining.length > 0) {
+    const closedMatch = TERMINAL_BLOCK_RE.exec(remaining);
+    TERMINAL_BLOCK_RE.lastIndex = 0;
+    const artifactMatch = ARTIFACT_PLACEHOLDER_RE.exec(remaining);
+    ARTIFACT_PLACEHOLDER_RE.lastIndex = 0;
+    const toolblockMatch = TOOLBLOCK_RE.exec(remaining);
+    TOOLBLOCK_RE.lastIndex = 0;
+
+    let nextMatchIndex = remaining.length;
+    let nextType:
+      | "terminal"
+      | "artifact"
+      | "open-terminal"
+      | "toolblock"
+      | "open-toolblock"
+      | null = null;
+
+    if (closedMatch && closedMatch.index < nextMatchIndex) {
+      nextMatchIndex = closedMatch.index;
+      nextType = "terminal";
     }
-    parts.push({
-      type: "artifact",
-      id: match[1] ?? "",
-      title: match[2] ?? "",
-      artifactType: (match[3] ?? "code") as ArtifactType,
-    });
-    lastIndex = match.index! + match[0].length;
-  }
+    if (artifactMatch && artifactMatch.index < nextMatchIndex) {
+      nextMatchIndex = artifactMatch.index;
+      nextType = "artifact";
+    }
+    if (toolblockMatch && toolblockMatch.index < nextMatchIndex) {
+      nextMatchIndex = toolblockMatch.index;
+      nextType = "toolblock";
+    }
 
-  if (lastIndex < content.length) {
-    parts.push({ type: "text", text: content.slice(lastIndex) });
+    if (nextType === null) {
+      const openMatch = TERMINAL_OPEN_RE.exec(remaining);
+      if (openMatch && openMatch.index < nextMatchIndex) {
+        nextMatchIndex = openMatch.index;
+        nextType = "open-terminal";
+      }
+    }
+
+    if (nextType === null) {
+      const openToolblock = TOOLBLOCK_OPEN_RE.exec(remaining);
+      if (openToolblock && openToolblock.index < nextMatchIndex) {
+        nextMatchIndex = openToolblock.index;
+        nextType = "open-toolblock";
+      }
+    }
+
+    if (nextType === null) {
+      if (remaining) parts.push({ type: "text", text: remaining });
+      break;
+    }
+
+    if (nextMatchIndex > 0) {
+      parts.push({ type: "text", text: remaining.slice(0, nextMatchIndex) });
+    }
+
+    if (nextType === "terminal" && closedMatch) {
+      parts.push({
+        type: "terminal",
+        command: closedMatch[1].replace(/&quot;/g, '"'),
+        output: closedMatch[2],
+        isStreaming: false,
+      });
+      remaining = remaining.slice(closedMatch.index + closedMatch[0].length);
+    } else if (nextType === "artifact" && artifactMatch) {
+      parts.push({
+        type: "artifact",
+        id: artifactMatch[1] ?? "",
+        title: artifactMatch[2] ?? "",
+        artifactType: (artifactMatch[3] ?? "code") as ArtifactType,
+      });
+      remaining = remaining.slice(artifactMatch.index + artifactMatch[0].length);
+    } else if (nextType === "toolblock" && toolblockMatch) {
+      const raw = toolblockMatch[3];
+      const hasError = raw.startsWith("ERROR: ");
+      parts.push({
+        type: "toolblock",
+        toolName: toolblockMatch[1].replace(/&quot;/g, '"'),
+        summary: toolblockMatch[2].replace(/&quot;/g, '"'),
+        output: hasError ? raw.slice(7) : raw,
+        isError: hasError,
+        isStreaming: false,
+      });
+      remaining = remaining.slice(toolblockMatch.index + toolblockMatch[0].length);
+    } else if (nextType === "open-terminal") {
+      const openMatch = TERMINAL_OPEN_RE.exec(remaining)!;
+      parts.push({
+        type: "terminal",
+        command: openMatch[1].replace(/&quot;/g, '"'),
+        output: openMatch[2],
+        isStreaming: true,
+      });
+      break;
+    } else if (nextType === "open-toolblock") {
+      const openMatch = TOOLBLOCK_OPEN_RE.exec(remaining)!;
+      parts.push({
+        type: "toolblock",
+        toolName: openMatch[1].replace(/&quot;/g, '"'),
+        summary: openMatch[2].replace(/&quot;/g, '"'),
+        output: openMatch[3],
+        isError: false,
+        isStreaming: true,
+      });
+      break;
+    }
   }
 
   return parts;
@@ -120,8 +224,10 @@ export function MessageBubble({
     onCopy?.();
   }, [content, onCopy]);
 
-  const parts = useMemo(() => splitContentWithArtifacts(content), [content]);
-  const hasArtifacts = parts.some((p) => p.type === "artifact");
+  const parts = useMemo(() => splitContentParts(content), [content]);
+  const hasSpecialBlocks = parts.some(
+    (p) => p.type === "artifact" || p.type === "terminal" || p.type === "toolblock",
+  );
 
   return (
     <div className={cn("group flex gap-3 px-4 py-4", isUser ? "justify-end" : "justify-start")}>
@@ -155,7 +261,7 @@ export function MessageBubble({
                 <span className="ml-0.5 inline-block h-4 w-0.5 animate-pulse bg-current align-text-bottom" />
               )}
             </div>
-          ) : hasArtifacts ? (
+          ) : hasSpecialBlocks ? (
             <div className="prose prose-sm max-w-none break-words">
               {parts.map((part, i) =>
                 part.type === "text" ? (
@@ -166,7 +272,7 @@ export function MessageBubble({
                   >
                     {part.text}
                   </ReactMarkdown>
-                ) : (
+                ) : part.type === "artifact" ? (
                   <div key={i} className="my-2">
                     <ArtifactReference
                       id={part.id}
@@ -175,6 +281,22 @@ export function MessageBubble({
                       onClick={() => onArtifactClick?.(part.id)}
                     />
                   </div>
+                ) : part.type === "toolblock" ? (
+                  <ToolBlock
+                    key={i}
+                    toolName={part.toolName}
+                    summary={part.summary}
+                    output={part.output}
+                    isError={part.isError}
+                    isStreaming={part.isStreaming}
+                  />
+                ) : (
+                  <TerminalBlock
+                    key={i}
+                    command={part.command}
+                    output={part.output}
+                    isStreaming={part.isStreaming}
+                  />
                 ),
               )}
               {isStreaming && (
