@@ -28,32 +28,51 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const fetchedForId = useRef<string | null>(null);
 
-  const stackUserId = stackUser?.id;
+  const stackUserId = stackUser?.id ?? null;
 
-  const refreshUser = useCallback(async () => {
+  useEffect(() => {
     if (!stackUserId) {
       setUser(null);
       setIsLoading(false);
+      fetchedForId.current = null;
       return;
     }
+    if (fetchedForId.current === stackUserId) return;
+    fetchedForId.current = stackUserId;
+
+    let cancelled = false;
+    getMe()
+      .then((me) => {
+        if (!cancelled) setUser(me);
+      })
+      .catch(() => {
+        if (!cancelled) setUser(null);
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [stackUserId]);
+
+  const refreshUser = useCallback(async () => {
+    if (!stackUserRef.current?.id) return;
     try {
       const me = await getMe();
       setUser(me);
     } catch {
       setUser(null);
-    } finally {
-      setIsLoading(false);
     }
-  }, [stackUserId]);
-
-  useEffect(() => {
-    refreshUser();
-  }, [refreshUser]);
+  }, []);
 
   const logout = useCallback(async () => {
     await stackUserRef.current?.signOut();
     setUser(null);
+    fetchedForId.current = null;
   }, []);
 
   const value = useMemo<AuthContextValue>(
