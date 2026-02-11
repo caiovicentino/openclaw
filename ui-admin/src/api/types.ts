@@ -120,6 +120,7 @@ export interface Role {
   name: string;
   description: string;
   permissions: string[];
+  isSystemRole: boolean;
   memberCount: number;
   createdAt: string;
   updatedAt: string;
@@ -191,6 +192,8 @@ export interface Agent {
   parameters: Record<string, unknown>;
   isDefault: boolean;
   status: string;
+  skipToolApproval?: boolean;
+  hooks?: unknown[];
   createdBy: string | null;
   createdAt: string;
   updatedAt: string;
@@ -211,10 +214,13 @@ export interface UpdateAgentRequest {
   description?: string;
   model?: string;
   systemPrompt?: string;
+  memory?: string | null;
+  projectInstructions?: string | null;
   tools?: unknown[];
   parameters?: Record<string, unknown>;
   isDefault?: boolean;
   status?: string;
+  skipToolApproval?: boolean;
   hooks?: unknown[];
 }
 
@@ -292,6 +298,15 @@ export interface CompliancePolicy {
   updatedAt: string;
 }
 
+export interface CompliancePolicyView {
+  id: string;
+  name: string;
+  type: string;
+  active: boolean;
+  config: Record<string, unknown>;
+  updatedAt: string;
+}
+
 export interface CreatePolicyRequest {
   name: string;
   description?: string;
@@ -343,6 +358,7 @@ export interface AuditEvent {
   action: string;
   resource: string;
   resourceId: string;
+  actorId?: string;
   userId: string;
   userName: string;
   ipAddress: string;

@@ -8,6 +8,7 @@ import { z } from "zod";
 import { getRole, updateRole } from "@/api/roles";
 import PermissionMatrix from "@/components/PermissionMatrix";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 
 const roleSchema = z.object({
   name: z.string().min(1, "Name is required"),
@@ -88,8 +89,27 @@ export default function RoleDetailPage() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center py-12">
-        <p className="text-sm text-muted-foreground">Loading role...</p>
+      <div className="space-y-6">
+        <Skeleton className="h-9 w-32 rounded" />
+        <div className="flex items-center gap-3">
+          <Skeleton className="h-8 w-8 rounded" />
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <Skeleton className="h-7 w-40" />
+              <Skeleton className="h-5 w-20 rounded-full" />
+            </div>
+            <Skeleton className="h-4 w-64" />
+          </div>
+        </div>
+        <div className="border-b border-border pb-3 flex gap-4">
+          <Skeleton className="h-4 w-24" />
+          <Skeleton className="h-4 w-20" />
+        </div>
+        <div className="space-y-3">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Skeleton key={i} className="h-10 w-full rounded" />
+          ))}
+        </div>
       </div>
     );
   }
@@ -105,8 +125,7 @@ export default function RoleDetailPage() {
     );
   }
 
-  const isSystemRole = ["super-admin", "admin", "viewer"].includes(role.name.toLowerCase());
-  const isReadOnly = isSystemRole;
+  const isReadOnly = role.isSystemRole;
 
   return (
     <div className="space-y-6">
@@ -118,7 +137,7 @@ export default function RoleDetailPage() {
 
       {/* Role header */}
       <div className="flex items-center gap-3">
-        {isSystemRole ? (
+        {role.isSystemRole ? (
           <ShieldCheck className="h-8 w-8 text-primary" />
         ) : (
           <Shield className="h-8 w-8 text-muted-foreground" />
@@ -126,7 +145,7 @@ export default function RoleDetailPage() {
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-2xl font-bold">{role.name}</h1>
-            {isSystemRole && (
+            {role.isSystemRole && (
               <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
                 System Role
               </span>

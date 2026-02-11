@@ -8,6 +8,7 @@ import { z } from "zod";
 import type { Role } from "@/api/types";
 import { getRoles, createRole, deleteRole } from "@/api/roles";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 
 const createRoleSchema = z.object({
   name: z.string().min(1, "Name is required"),
@@ -46,9 +47,7 @@ export default function RolesPage() {
     defaultValues: { name: "", description: "" },
   });
 
-  // System roles are determined by common names
-  const isSystemRole = (role: Role) =>
-    ["super-admin", "admin", "viewer"].includes(role.name.toLowerCase());
+  const isSystem = (role: Role) => role.isSystemRole;
 
   return (
     <div className="space-y-6">
@@ -66,8 +65,17 @@ export default function RolesPage() {
 
       {/* Roles grid */}
       {isLoading ? (
-        <div className="flex items-center justify-center py-12">
-          <p className="text-sm text-muted-foreground">Loading roles...</p>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="rounded-lg border border-border p-5 h-[140px] space-y-3">
+              <div className="flex items-center gap-2">
+                <Skeleton className="h-5 w-5 rounded" />
+                <Skeleton className="h-4 w-24" />
+              </div>
+              <Skeleton className="h-3 w-full" />
+              <Skeleton className="h-3 w-2/3" />
+            </div>
+          ))}
         </div>
       ) : roles.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-12 gap-2">
@@ -80,7 +88,7 @@ export default function RolesPage() {
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {roles.map((role) => {
-            const system = isSystemRole(role);
+            const system = isSystem(role);
             return (
               <div
                 key={role.id}

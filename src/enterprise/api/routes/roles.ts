@@ -5,10 +5,10 @@ import {
   createRole,
   getRoleById,
   listRoles,
-  updateRole,
   deleteRole,
   getUsersWithRole,
 } from "../../db/repositories/role-repo.js";
+import { updateRoleSafe } from "../../rbac/roles.js";
 import { badRequest, forbidden, notFound, conflict } from "../errors.js";
 import { jwtAuthMiddleware, requirePermission, auditRoute } from "../middleware/index.js";
 
@@ -147,11 +147,15 @@ roles.patch(
     const { displayName, department, permissions } = parsed.data;
 
     try {
-      const role = await updateRole(ctx.tenantId, roleId, {
+      const role = await updateRoleSafe(ctx.tenantId, roleId, {
         displayName,
         department,
         permissions,
       });
+
+      if (!role) {
+        return notFound(c, "Role");
+      }
 
       return c.json(role);
     } catch (err) {
