@@ -29,7 +29,8 @@ export default function ChatPage() {
   const { sessionId: urlSessionId } = useParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { resetKey } = useOutletContext<{ resetKey: number }>();
+  const outletContext = useOutletContext<{ resetKey?: number } | null>() ?? {};
+  const resetKey = (outletContext as { resetKey?: number }).resetKey ?? 0;
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const {

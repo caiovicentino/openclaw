@@ -43,6 +43,10 @@ interface MessageBubbleProps {
 }
 
 const ARTIFACT_PLACEHOLDER_RE = /\[ARTIFACT:([^:]+):([^:]+):([^\]]+)\]/g;
+const ARTIFACT_RAW_RE =
+  /<artifact\s+type="([^"]*)"\s+title="([^"]*)"(?:\s+language="([^"]*)")?>([\s\S]*?)<\/artifact>/g;
+const ARTIFACT_RAW_OPEN_RE =
+  /<artifact\s+type="([^"]*)"\s+title="([^"]*)"(?:\s+language="([^"]*)")?>([\s\S]*)$/;
 const TERMINAL_BLOCK_RE = /<terminal command="([^"]*(?:&quot;[^"]*)*)">([\s\S]*?)<\/terminal>/g;
 const TERMINAL_OPEN_RE = /<terminal command="([^"]*(?:&quot;[^"]*)*)">([\s\S]*)$/;
 const TOOLBLOCK_RE = /<toolblock name="([^"]*)" summary="([^"]*)">([\s\S]*?)<\/toolblock>/g;
@@ -51,6 +55,14 @@ const TOOLBLOCK_OPEN_RE = /<toolblock name="([^"]*)" summary="([^"]*)">([\s\S]*)
 type ContentPart =
   | { type: "text"; text: string }
   | { type: "artifact"; id: string; title: string; artifactType: ArtifactType }
+  | {
+      type: "raw-artifact";
+      artifactType: ArtifactType;
+      title: string;
+      language?: string;
+      content: string;
+      isStreaming: boolean;
+    }
   | { type: "terminal"; command: string; output: string; isStreaming: boolean }
   | {
       type: "toolblock";
@@ -72,14 +84,18 @@ function splitContentParts(content: string): ContentPart[] {
     ARTIFACT_PLACEHOLDER_RE.lastIndex = 0;
     const toolblockMatch = TOOLBLOCK_RE.exec(remaining);
     TOOLBLOCK_RE.lastIndex = 0;
+    const rawArtifactMatch = ARTIFACT_RAW_RE.exec(remaining);
+    ARTIFACT_RAW_RE.lastIndex = 0;
 
     let nextMatchIndex = remaining.length;
     let nextType:
       | "terminal"
       | "artifact"
+      | "raw-artifact"
       | "open-terminal"
       | "toolblock"
       | "open-toolblock"
+      | "open-raw-artifact"
       | null = null;
 
     if (closedMatch && closedMatch.index < nextMatchIndex) {
@@ -89,6 +105,10 @@ function splitContentParts(content: string): ContentPart[] {
     if (artifactMatch && artifactMatch.index < nextMatchIndex) {
       nextMatchIndex = artifactMatch.index;
       nextType = "artifact";
+    }
+    if (rawArtifactMatch && rawArtifactMatch.index < nextMatchIndex) {
+      nextMatchIndex = rawArtifactMatch.index;
+      nextType = "raw-artifact";
     }
     if (toolblockMatch && toolblockMatch.index < nextMatchIndex) {
       nextMatchIndex = toolblockMatch.index;
@@ -108,6 +128,14 @@ function splitContentParts(content: string): ContentPart[] {
       if (openToolblock && openToolblock.index < nextMatchIndex) {
         nextMatchIndex = openToolblock.index;
         nextType = "open-toolblock";
+      }
+    }
+
+    if (nextType === null) {
+      const openRawArtifact = ARTIFACT_RAW_OPEN_RE.exec(remaining);
+      if (openRawArtifact && openRawArtifact.index < nextMatchIndex) {
+        nextMatchIndex = openRawArtifact.index;
+        nextType = "open-raw-artifact";
       }
     }
 
@@ -136,6 +164,27 @@ function splitContentParts(content: string): ContentPart[] {
         artifactType: (artifactMatch[3] ?? "code") as ArtifactType,
       });
       remaining = remaining.slice(artifactMatch.index + artifactMatch[0].length);
+    } else if (nextType === "raw-artifact" && rawArtifactMatch) {
+      parts.push({
+        type: "raw-artifact",
+        artifactType: (rawArtifactMatch[1] ?? "code") as ArtifactType,
+        title: rawArtifactMatch[2] ?? "",
+        language: rawArtifactMatch[3],
+        content: rawArtifactMatch[4] ?? "",
+        isStreaming: false,
+      });
+      remaining = remaining.slice(rawArtifactMatch.index + rawArtifactMatch[0].length);
+    } else if (nextType === "open-raw-artifact") {
+      const openRaw = ARTIFACT_RAW_OPEN_RE.exec(remaining)!;
+      parts.push({
+        type: "raw-artifact",
+        artifactType: (openRaw[1] ?? "code") as ArtifactType,
+        title: openRaw[2] ?? "",
+        language: openRaw[3],
+        content: openRaw[4] ?? "",
+        isStreaming: true,
+      });
+      remaining = "";
     } else if (nextType === "toolblock" && toolblockMatch) {
       const raw = toolblockMatch[3];
       const hasError = raw.startsWith("ERROR: ");
@@ -280,6 +329,36 @@ export function MessageBubble({
                       type={part.artifactType}
                       onClick={() => onArtifactClick?.(part.id)}
                     />
+                  </div>
+                ) : part.type === "raw-artifact" ? (
+                  <div key={i} className="my-3">
+                    {part.artifactType === "html" ? (
+                      <div className="rounded-lg border border-border overflow-hidden">
+                        <div className="flex items-center justify-between px-3 py-1.5 bg-muted/50 border-b border-border">
+                          <span className="text-xs font-medium">{part.title}</span>
+                          {part.isStreaming && (
+                            <span className="h-2 w-2 rounded-full bg-green-500 animate-pulse" />
+                          )}
+                        </div>
+                        <iframe
+                          srcDoc={part.content}
+                          sandbox="allow-scripts"
+                          className="w-full border-0"
+                          style={{ height: "400px" }}
+                          title={part.title}
+                        />
+                      </div>
+                    ) : (
+                      <div className="rounded-lg border border-border overflow-hidden">
+                        <div className="flex items-center justify-between px-3 py-1.5 bg-muted/50 border-b border-border">
+                          <span className="text-xs font-medium">{part.title}</span>
+                        </div>
+                        <CodeBlock
+                          code={part.content}
+                          language={part.language ?? part.artifactType}
+                        />
+                      </div>
+                    )}
                   </div>
                 ) : part.type === "toolblock" ? (
                   <ToolBlock
